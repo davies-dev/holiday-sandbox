@@ -369,14 +369,22 @@ class HandHistoryExplorer(tk.Tk):
         qb.add_condition(Condition("game_type", "LIKE", "zoom_cash_6max%"))
         pf_selected = self.pf_seq_var.get().strip()
         pf_action_str = self.pf_action_str_var.get().strip()
-        if pf_selected == "Unnamed":
-            pf_values = tuple(v.strip() for v in pf_action_str.split(";") if v.strip())
-            if pf_values:
-                qb.add_condition(Condition("pf_action_seq", "IN", pf_values))
-            else:
-                qb.add_condition(Condition("pf_action_seq", "=", ""))
+        # Use different logic depending on the checkbox
+        if hasattr(self, 'pf_action_no_var') and not self.pf_action_no_var.get():
+            # Checkbox is unchecked: use preflop pattern SQL
+            pf_sql_pattern = self.pf_sql_pattern_var.get().strip()
+            if pf_sql_pattern:
+                qb.add_condition(Condition("pf_action_seq", "~", pf_sql_pattern))
         else:
-            qb.add_condition(Condition("pf_action_seq", "=", pf_action_str))
+            # Checkbox is checked: use preflop action number logic
+            if pf_selected == "Unnamed":
+                pf_values = tuple(v.strip() for v in pf_action_str.split(";") if v.strip())
+                if pf_values:
+                    qb.add_condition(Condition("pf_action_seq", "IN", pf_values))
+                else:
+                    qb.add_condition(Condition("pf_action_seq", "=", ""))
+            else:
+                qb.add_condition(Condition("pf_action_seq", "=", pf_action_str))
         flop_sql_pattern = self.flop_sql_pattern_var.get().strip()
         if flop_sql_pattern:
             qb.add_condition(Condition("flop_action_seq", "~", flop_sql_pattern))
