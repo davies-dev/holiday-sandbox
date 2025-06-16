@@ -2,7 +2,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from db_access import DatabaseAccess
-from query_builder import QueryBuilder, Condition
+from query_builder import QueryBuilder, Condition, SortCriterion
 from saved_state_manager import SavedStateManager
 from typing import List
 from holiday_parser import (
@@ -401,6 +401,8 @@ class HandHistoryExplorer(tk.Tk):
         position_player = self.position_player_var.get().strip()
         if position and position != "None" and position_player:
             qb.add_condition(Condition(f"positions->>'{position}'", "=", position_player))
+        # Add sorting by created_at in descending order
+        qb.add_sort(SortCriterion("created_at", "DESC"))
         query = qb.build_query()
         try:
             with self.db.conn.cursor() as cur:
