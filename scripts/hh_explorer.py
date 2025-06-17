@@ -171,12 +171,35 @@ class HandHistoryExplorer(tk.Tk):
         self.position_player_entry = ttk.Entry(query_frame, textvariable=self.position_player_var, width=30)
         self.position_player_entry.grid(row=6, column=3, sticky=tk.W, padx=5, pady=5)
         
+        # --- Time Period Checkbox and Entry ---
+        self.time_period_var = tk.BooleanVar(value=True)  # Default to checked
+        self.time_period_checkbox = ttk.Checkbutton(query_frame, text="Time Period (hours):", 
+                                                   variable=self.time_period_var,
+                                                   command=self.toggle_time_period)
+        self.time_period_checkbox.grid(row=7, column=0, sticky=tk.E, padx=5, pady=5)
+
+        self.time_period_entry_var = tk.StringVar(value="24")  # Default to 24 hours
+        self.time_period_entry = ttk.Entry(query_frame, textvariable=self.time_period_entry_var, width=10)
+        self.time_period_entry.grid(row=7, column=1, sticky=tk.W, padx=5, pady=5)
+
+        # --- Player Flop Checkbox and Entry ---
+        self.player_flop_var = tk.BooleanVar(value=False)  # Default to unchecked
+        self.player_flop_checkbox = ttk.Checkbutton(query_frame, text="Player Saw Flop:", 
+                                                   variable=self.player_flop_var,
+                                                   command=self.toggle_player_flop)
+        self.player_flop_checkbox.grid(row=7, column=2, sticky=tk.E, padx=5, pady=5)
+
+        self.player_flop_entry_var = tk.StringVar(value="HumptyD")  # Default to HumptyD
+        self.player_flop_entry = ttk.Entry(query_frame, textvariable=self.player_flop_entry_var, width=30)
+        self.player_flop_entry.grid(row=7, column=3, sticky=tk.W, padx=5, pady=5)
+        self.player_flop_entry.config(state=tk.DISABLED)  # Initially disabled
+        
         self.query_button = ttk.Button(query_frame, text="Run Query", command=self.run_query)
-        self.query_button.grid(row=7, column=0, columnspan=4, pady=10)
+        self.query_button.grid(row=8, column=0, columnspan=4, pady=10)
         
         # Add after the query button
         refresh_btn = ttk.Button(query_frame, text="↻ Refresh Dropdowns", command=self.refresh_all_dropdowns)
-        refresh_btn.grid(row=7, column=3, pady=10, sticky=tk.E)
+        refresh_btn.grid(row=8, column=3, pady=10, sticky=tk.E)
         
         # --- New: Betting Opportunities Button ---
         opp_btn = ttk.Button(parent, text="Show Betting Opportunities", command=self.show_betting_opportunities)
@@ -363,58 +386,171 @@ class HandHistoryExplorer(tk.Tk):
             self.river_sql_pattern_var.set(sql_pattern)
     
     def run_query(self):
-        qb = QueryBuilder(
-            "SELECT id, game_type, pf_action_seq, flop_action_seq, turn_action_seq, river_action_seq, raw_text FROM hand_histories"
-        )
-        qb.add_condition(Condition("game_type", "LIKE", "zoom_cash_6max%"))
-        pf_selected = self.pf_seq_var.get().strip()
-        pf_action_str = self.pf_action_str_var.get().strip()
-        # Use different logic depending on the checkbox
-        if hasattr(self, 'pf_action_no_var') and not self.pf_action_no_var.get():
-            # Checkbox is unchecked: use preflop pattern SQL
-            pf_sql_pattern = self.pf_sql_pattern_var.get().strip()
-            if pf_sql_pattern:
-                qb.add_condition(Condition("pf_action_seq", "~", pf_sql_pattern))
-        else:
-            # Checkbox is checked: use preflop action number logic
-            if pf_selected == "Unnamed":
-                pf_values = tuple(v.strip() for v in pf_action_str.split(";") if v.strip())
-                if pf_values:
-                    qb.add_condition(Condition("pf_action_seq", "IN", pf_values))
-                else:
-                    qb.add_condition(Condition("pf_action_seq", "=", ""))
-            else:
-                qb.add_condition(Condition("pf_action_seq", "=", pf_action_str))
-        flop_sql_pattern = self.flop_sql_pattern_var.get().strip()
-        if flop_sql_pattern:
-            qb.add_condition(Condition("flop_action_seq", "~", flop_sql_pattern))
-        turn_sql_pattern = self.turn_sql_pattern_var.get().strip()
-        if turn_sql_pattern:
-            qb.add_condition(Condition("turn_action_seq", "~", turn_sql_pattern))
-        river_sql_pattern = self.river_sql_pattern_var.get().strip()
-        if river_sql_pattern:
-            qb.add_condition(Condition("river_action_seq", "~", river_sql_pattern))
-        button_name = self.button_name_var.get().strip()
-        if button_name:
-            qb.add_condition(Condition("button_name", "=", button_name))
-        position = self.position_var.get().strip()
-        position_player = self.position_player_var.get().strip()
-        if position and position != "None" and position_player:
-            qb.add_condition(Condition(f"positions->>'{position}'", "=", position_player))
-        # Add sorting by created_at in descending order
-        qb.add_sort(SortCriterion("created_at", "DESC"))
-        query = qb.build_query()
         try:
+            qb = QueryBuilder(
+                "SELECT id, game_type, pf_action_seq, flop_action_seq, turn_action_seq, river_action_seq, raw_text FROM hand_histories"
+            )
+            qb.add_condition(Condition("game_type", "LIKE", "zoom_cash_6max%"))
+            
+            # Add time period condition if enabled
+            if self.time_period_var.get():
+                try:
+                    time_period = int(self.time_period_entry_var.get().strip())
+                    if time_period > 0:  # Only add condition if time period is positive
+                        qb.add_condition(Condition("created_at", ">=", f"NOW() - INTERVAL '{time_period} hours'"))
+                except ValueError:
+                    messagebox.showerror("Error", "Please enter a valid number of hours.")
+                    return
+            
+            # Add player flop condition if enabled
+            if self.player_flop_var.get():
+                player_name = self.player_flop_entry_var.get().strip()
+                print(f"Searching for player: {player_name}")  # Debug log
+                if not player_name:
+                    messagebox.showerror("Error", "Please enter a player name.")
+                    return
+                
+                # Add condition to check if hand reached flop
+                qb.add_condition(Condition("flop_action_seq", "IS NOT NULL", ""))
+                
+                # Get the preflop sequence to optimize the query
+                pf_selected = self.pf_seq_var.get().strip()
+                pf_action_str = self.pf_action_str_var.get().strip()
+                
+                # Try to use preflop sequence analysis for optimization
+                use_optimized_conditions = False
+                if pf_selected != "Unnamed" and pf_action_str:
+                    # We have a specific preflop sequence, analyze it
+                    flop_conditions = self.construct_flop_query_conditions(pf_action_str, player_name)
+                    if flop_conditions:
+                        # Use the optimized conditions with OR logic
+                        print(f"Using optimized flop conditions for positions: {[self.get_position_name_from_number(pos) for pos in self.analyze_pf_sequence_for_flop_positions(pf_action_str)]}")
+                        
+                        # Build OR condition manually since QueryBuilder doesn't support OR
+                        position_conditions = []
+                        for condition in flop_conditions:
+                            position_conditions.append(f"{condition.field} = '{condition.value}'")
+                        
+                        if position_conditions:
+                            or_condition = " OR ".join(position_conditions)
+                            # Add as a raw condition
+                            qb.add_condition(Condition(f"({or_condition})", "", ""))
+                            use_optimized_conditions = True
+                    
+                if not use_optimized_conditions:
+                    # Fall back to the general position check
+                    qb.add_condition(Condition("positions::text", "LIKE", f"%{player_name}%"))
+            
+            # Add existing conditions
+            pf_selected = self.pf_seq_var.get().strip()
+            pf_action_str = self.pf_action_str_var.get().strip()
+            # Use different logic depending on the checkbox
+            if hasattr(self, 'pf_action_no_var') and not self.pf_action_no_var.get():
+                # Checkbox is unchecked: use preflop pattern SQL
+                pf_sql_pattern = self.pf_sql_pattern_var.get().strip()
+                if pf_sql_pattern:
+                    qb.add_condition(Condition("pf_action_seq", "~", pf_sql_pattern))
+            else:
+                # Checkbox is checked: use preflop action number logic
+                if pf_selected == "Unnamed":
+                    pf_values = tuple(v.strip() for v in pf_action_str.split(";") if v.strip())
+                    if pf_values:
+                        qb.add_condition(Condition("pf_action_seq", "IN", pf_values))
+                    else:
+                        qb.add_condition(Condition("pf_action_seq", "=", ""))
+                else:
+                    qb.add_condition(Condition("pf_action_seq", "=", pf_action_str))
+            
+            flop_sql_pattern = self.flop_sql_pattern_var.get().strip()
+            if flop_sql_pattern:
+                qb.add_condition(Condition("flop_action_seq", "~", flop_sql_pattern))
+            turn_sql_pattern = self.turn_sql_pattern_var.get().strip()
+            if turn_sql_pattern:
+                qb.add_condition(Condition("turn_action_seq", "~", turn_sql_pattern))
+            river_sql_pattern = self.river_sql_pattern_var.get().strip()
+            if river_sql_pattern:
+                qb.add_condition(Condition("river_action_seq", "~", river_sql_pattern))
+            button_name = self.button_name_var.get().strip()
+            if button_name:
+                qb.add_condition(Condition("button_name", "=", button_name))
+            position = self.position_var.get().strip()
+            position_player = self.position_player_var.get().strip()
+            if position and position != "None" and position_player:
+                qb.add_condition(Condition(f"positions->>'{position}'", "=", position_player))
+            
+            # Add sorting by created_at in descending order
+            qb.add_sort(SortCriterion("created_at", "DESC"))
+            query = qb.build_query()
+            
+            # Print the query for debugging
+            print("Generated SQL Query:", query)
+            
+            # Reset any failed transaction
+            self.db.conn.rollback()
+            
             with self.db.conn.cursor() as cur:
+                # First, let's check how many hands match just the basic conditions
+                basic_query = "SELECT COUNT(*) FROM hand_histories WHERE game_type LIKE 'zoom_cash_6max%'"
+                cur.execute(basic_query)
+                basic_count = cur.fetchone()[0]
+                print(f"Total hands matching basic conditions: {basic_count}")
+                
+                # Now execute the full query
                 cur.execute(query)
                 rows = cur.fetchall()
+                print(f"Total hands matching all conditions: {len(rows)}")
+                
+                # If player flop filter is enabled, filter results to only include hands where player saw the flop
+                if self.player_flop_var.get():
+                    # Check if we used optimized conditions
+                    if 'use_optimized_conditions' in locals() and use_optimized_conditions:
+                        print("Using optimized conditions - skipping post-processing")
+                        self.query_results = rows
+                    else:
+                        filtered_rows = []
+                        player_name = self.player_flop_entry_var.get().strip()  # Get the player name again
+                        print(f"Filtering for player: {player_name}")  # Debug log
+                        for row in rows:
+                            try:
+                                # Parse the hand history
+                                parser = get_hand_history_parser(row[6])
+                                hh_data = parser.parse(row[6])
+                                
+                                # Check if player was active on the flop
+                                flop_node = None
+                                for node in hh_data.hand_history_tree.get_all_nodes():
+                                    if isinstance(node, StreetChange) and node.street == "flop":
+                                        flop_node = node
+                                        break
+                                
+                                if flop_node:
+                                    # Check if player was active at the flop
+                                    player_active = False
+                                    for player in flop_node.active_players:
+                                        if player.player == player_name and player.is_active:
+                                            player_active = True
+                                            break
+                                    
+                                    if player_active:
+                                        filtered_rows.append(row)
+                            except Exception as e:
+                                print(f"Error processing hand {row[0]}: {e}")
+                                continue
+                        
+                        print(f"Total hands after flop filtering: {len(filtered_rows)}")
+                        self.query_results = filtered_rows
+                else:
+                    self.query_results = rows
+                
+                self.current_index = 0
+                self.display_current_result()
+                
         except Exception as e:
             self.result_text.delete("1.0", tk.END)
             self.result_text.insert(tk.END, f"Error executing query: {e}\n")
+            # Reset any failed transaction
+            self.db.conn.rollback()
             return
-        self.query_results = rows
-        self.current_index = 0
-        self.display_current_result()
     
     def display_current_result(self):
         try:
@@ -1005,6 +1141,99 @@ class HandHistoryExplorer(tk.Tk):
         except Exception as e:
             print("Error retrieving preflop patterns from DB:", e)
         return patterns
+
+    def toggle_time_period(self):
+        if self.time_period_var.get():
+            self.time_period_entry.config(state=tk.NORMAL)
+        else:
+            self.time_period_entry.config(state=tk.DISABLED)
+
+    def toggle_player_flop(self):
+        if self.player_flop_var.get():
+            self.player_flop_entry.config(state=tk.NORMAL)
+        else:
+            self.player_flop_entry.config(state=tk.DISABLED)
+
+    def analyze_pf_sequence_for_flop_positions(self, pf_sequence):
+        """
+        Analyze a preflop action sequence to determine which positions are likely to see the flop.
+        
+        Args:
+            pf_sequence (str): Preflop action sequence like "1f2f3f4r5r6r5c"
+        
+        Returns:
+            list: List of position numbers (1-6) that are likely to see the flop
+        """
+        if not pf_sequence:
+            return []
+        
+        # Parse the sequence into actions
+        actions = []
+        i = 0
+        while i < len(pf_sequence):
+            if pf_sequence[i].isdigit():
+                position = int(pf_sequence[i])
+                if i + 1 < len(pf_sequence):
+                    action = pf_sequence[i + 1]
+                    actions.append((position, action))
+                i += 2
+            else:
+                i += 1
+        
+        # Track which positions are still active
+        active_positions = set(range(1, 7))  # Start with all positions 1-6
+        
+        for position, action in actions:
+            if action == 'f':  # fold
+                active_positions.discard(position)
+            elif action == 'r':  # raise
+                # Position is still active after raising
+                pass
+            elif action == 'c':  # call
+                # Position is still active after calling
+                pass
+            elif action == 'k':  # check
+                # Position is still active after checking
+                pass
+        
+        return sorted(list(active_positions))
+
+    def get_position_name_from_number(self, position_num):
+        """Convert position number to position name."""
+        position_map = {
+            1: "UTG",
+            2: "MP", 
+            3: "CO",
+            4: "BN",
+            5: "SB",
+            6: "BB"
+        }
+        return position_map.get(position_num, f"P{position_num}")
+
+    def construct_flop_query_conditions(self, pf_sequence, player_name):
+        """
+        Construct SQL conditions to check if a player is likely to see the flop
+        based on the preflop action sequence.
+        
+        Args:
+            pf_sequence (str): Preflop action sequence
+            player_name (str): Name of the player to check
+        
+        Returns:
+            list: List of Condition objects to add to the query
+        """
+        flop_positions = self.analyze_pf_sequence_for_flop_positions(pf_sequence)
+        
+        if not flop_positions:
+            return []
+        
+        # Create conditions to check if the player is in any of the flop positions
+        conditions = []
+        for pos_num in flop_positions:
+            pos_name = self.get_position_name_from_number(pos_num)
+            conditions.append(Condition(f"positions->>'{pos_name}'", "=", player_name))
+        
+        return conditions
 
 if __name__ == "__main__":
     app = HandHistoryExplorer()

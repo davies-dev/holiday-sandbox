@@ -172,3 +172,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# ephemeral error_logs
+scripts/results.txt
+scripts/filtered_output.txt

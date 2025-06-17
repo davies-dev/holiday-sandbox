@@ -16,8 +16,19 @@ class Condition:
         """
         Converts the condition to a SQL snippet.
         If the value is a string, it is quoted.
+        Special handling for IS NOT NULL and interval expressions.
         """
-        if isinstance(self.value, str):
+        # Handle raw SQL conditions (when operator is empty)
+        if not self.operator:
+            return self.field
+        
+        if self.operator == "IS NOT NULL":
+            return f"{self.field} IS NOT NULL"
+        elif isinstance(self.value, str) and "INTERVAL" in self.value:
+            return f"{self.field} {self.operator} {self.value}"
+        elif isinstance(self.value, str) and "ARRAY" in self.value:
+            return f"{self.field} {self.operator} {self.value}"
+        elif isinstance(self.value, str):
             value_str = f"'{self.value}'"
         else:
             value_str = str(self.value)
