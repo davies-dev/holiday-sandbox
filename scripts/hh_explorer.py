@@ -195,11 +195,25 @@ class HandHistoryExplorer(tk.Tk):
         self.player_flop_entry.config(state=tk.DISABLED)  # Initially disabled
         
         self.query_button = ttk.Button(query_frame, text="Run Query", command=self.run_query)
-        self.query_button.grid(row=8, column=0, columnspan=4, pady=10)
+        self.query_button.grid(row=8, column=0, columnspan=2, pady=10, sticky=tk.W)
+        
+        # Add Show Query button next to Run Query button
+        self.show_query_button = ttk.Button(query_frame, text="Show Query", command=self.show_query)
+        self.show_query_button.grid(row=8, column=2, pady=10, sticky=tk.W)
         
         # Add after the query button
         refresh_btn = ttk.Button(query_frame, text="↻ Refresh Dropdowns", command=self.refresh_all_dropdowns)
         refresh_btn.grid(row=8, column=3, pady=10, sticky=tk.E)
+        
+        # --- New: State Name Display ---
+        state_display_frame = ttk.LabelFrame(query_frame, text="Current Hand State")
+        state_display_frame.grid(row=9, column=0, columnspan=4, sticky=tk.EW, padx=5, pady=5)
+        
+        ttk.Label(state_display_frame, text="Matching State Name:").grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
+        self.matching_state_var = tk.StringVar(value="No hand loaded")
+        self.matching_state_entry = ttk.Entry(state_display_frame, textvariable=self.matching_state_var, 
+                                             width=50, state="readonly")
+        self.matching_state_entry.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
         
         # --- New: Betting Opportunities Button ---
         opp_btn = ttk.Button(parent, text="Show Betting Opportunities", command=self.show_betting_opportunities)
@@ -557,6 +571,7 @@ class HandHistoryExplorer(tk.Tk):
             self.result_text.delete("1.0", tk.END)
             if not self.query_results:
                 self.result_text.insert(tk.END, "No matching hand histories found.\n")
+                self.matching_state_var.set("No hand loaded")
             else:
                 row = self.query_results[self.current_index]
                 (hand_id, game_type, pf_seq, flop_seq, turn_seq, river_seq, raw_text) = row
@@ -584,6 +599,7 @@ class HandHistoryExplorer(tk.Tk):
         except Exception as e:
             self.result_text.delete("1.0", tk.END)
             self.result_text.insert(tk.END, f"Error displaying result: {e}\n")
+            self.matching_state_var.set("Error displaying result")
     
     def next_result(self):
         try:
@@ -593,6 +609,7 @@ class HandHistoryExplorer(tk.Tk):
         except Exception as e:
             self.result_text.delete("1.0", tk.END)
             self.result_text.insert(tk.END, f"Error navigating to next result: {e}\n")
+            self.matching_state_var.set("Error navigating")
     
     def prev_result(self):
         try:
@@ -603,6 +620,7 @@ class HandHistoryExplorer(tk.Tk):
             messagebox.showerror("Error", f"Error navigating to previous result: {str(e)}\nThe application will continue running.")
             # Reset to a safe state
             self.current_index = max(0, min(self.current_index, len(self.query_results)-1))
+            self.matching_state_var.set("Error navigating")
     
     def save_new_pf_action(self):
         new_pf_number = self.new_pf_number_var.get().strip()
@@ -859,9 +877,14 @@ class HandHistoryExplorer(tk.Tk):
             hh_data.hand_id = row[0]  # Set the hand ID
             hh_data.compute_betting_opportunities()  # Compute betting opportunities
             self.current_hand["hand_history_data"] = hh_data
+            
+            # Update the matching state name display
+            self.update_matching_state_display(hh_data)
+            
         except Exception as e:
             messagebox.showerror("Error", f"Error loading hand: {str(e)}\nThe application will continue running.")
             self.current_hand = None
+            self.matching_state_var.set("Error loading hand")
 
     def show_combined_view(self):
         """Show actions and betting opportunities side by side in an alternating format."""
@@ -1142,6 +1165,40 @@ class HandHistoryExplorer(tk.Tk):
             print("Error retrieving preflop patterns from DB:", e)
         return patterns
 
+    def lookup_state_name_for_pf_sequence(self, pf_sequence, game_type):
+        """
+        Look up the state name that matches a given preflop action sequence.
+        
+        Args:
+            pf_sequence (str): The preflop action sequence to look up
+            game_type (str): The game type (e.g., 'zoom_cash_6max')
+        
+        Returns:
+            str: The state name if found, "Unnamed" if not found, or error message
+        """
+        if not pf_sequence:
+            return "No sequence"
+        
+        try:
+            # Query the hand_state table to find a matching state
+            query = (
+                f"SELECT state_name FROM hand_state "
+                f"WHERE state_type = 'preflop' AND game_type = %s AND state_value = %s"
+            )
+            
+            with self.db.conn.cursor() as cur:
+                cur.execute(query, (game_type, pf_sequence))
+                result = cur.fetchone()
+                
+            if result:
+                return result[0]
+            else:
+                return "Unnamed"
+                
+        except Exception as e:
+            print(f"Error looking up state name for sequence {pf_sequence}: {e}")
+            return f"Error: {e}"
+
     def toggle_time_period(self):
         if self.time_period_var.get():
             self.time_period_entry.config(state=tk.NORMAL)
@@ -1234,6 +1291,172 @@ class HandHistoryExplorer(tk.Tk):
             conditions.append(Condition(f"positions->>'{pos_name}'", "=", player_name))
         
         return conditions
+
+    def show_query(self):
+        """Show the SQL query that would be executed in a popup window."""
+        try:
+            # Build the query using the same logic as run_query but don't execute it
+            qb = QueryBuilder(
+                "SELECT id, game_type, pf_action_seq, flop_action_seq, turn_action_seq, river_action_seq, raw_text FROM hand_histories"
+            )
+            qb.add_condition(Condition("game_type", "LIKE", "zoom_cash_6max%"))
+            
+            # Add time period condition if enabled
+            if self.time_period_var.get():
+                try:
+                    time_period = int(self.time_period_entry_var.get().strip())
+                    if time_period > 0:  # Only add condition if time period is positive
+                        qb.add_condition(Condition("created_at", ">=", f"NOW() - INTERVAL '{time_period} hours'"))
+                except ValueError:
+                    messagebox.showerror("Error", "Please enter a valid number of hours.")
+                    return
+            
+            # Add player flop condition if enabled
+            if self.player_flop_var.get():
+                player_name = self.player_flop_entry_var.get().strip()
+                if not player_name:
+                    messagebox.showerror("Error", "Please enter a player name.")
+                    return
+                
+                # Add condition to check if hand reached flop
+                qb.add_condition(Condition("flop_action_seq", "IS NOT NULL", ""))
+                
+                # Get the preflop sequence to optimize the query
+                pf_selected = self.pf_seq_var.get().strip()
+                pf_action_str = self.pf_action_str_var.get().strip()
+                
+                # Try to use preflop sequence analysis for optimization
+                use_optimized_conditions = False
+                if pf_selected != "Unnamed" and pf_action_str:
+                    # We have a specific preflop sequence, analyze it
+                    flop_conditions = self.construct_flop_query_conditions(pf_action_str, player_name)
+                    if flop_conditions:
+                        # Use the optimized conditions with OR logic
+                        position_conditions = []
+                        for condition in flop_conditions:
+                            position_conditions.append(f"{condition.field} = '{condition.value}'")
+                        
+                        if position_conditions:
+                            or_condition = " OR ".join(position_conditions)
+                            # Add as a raw condition
+                            qb.add_condition(Condition(f"({or_condition})", "", ""))
+                            use_optimized_conditions = True
+                    
+                if not use_optimized_conditions:
+                    # Fall back to the general position check
+                    qb.add_condition(Condition("positions::text", "LIKE", f"%{player_name}%"))
+            
+            # Add existing conditions
+            pf_selected = self.pf_seq_var.get().strip()
+            pf_action_str = self.pf_action_str_var.get().strip()
+            # Use different logic depending on the checkbox
+            if hasattr(self, 'pf_action_no_var') and not self.pf_action_no_var.get():
+                # Checkbox is unchecked: use preflop pattern SQL
+                pf_sql_pattern = self.pf_sql_pattern_var.get().strip()
+                if pf_sql_pattern:
+                    qb.add_condition(Condition("pf_action_seq", "~", pf_sql_pattern))
+            else:
+                # Checkbox is checked: use preflop action number logic
+                if pf_selected == "Unnamed":
+                    pf_values = tuple(v.strip() for v in pf_action_str.split(";") if v.strip())
+                    if pf_values:
+                        qb.add_condition(Condition("pf_action_seq", "IN", pf_values))
+                    else:
+                        qb.add_condition(Condition("pf_action_seq", "=", ""))
+                else:
+                    qb.add_condition(Condition("pf_action_seq", "=", pf_action_str))
+            
+            flop_sql_pattern = self.flop_sql_pattern_var.get().strip()
+            if flop_sql_pattern:
+                qb.add_condition(Condition("flop_action_seq", "~", flop_sql_pattern))
+            turn_sql_pattern = self.turn_sql_pattern_var.get().strip()
+            if turn_sql_pattern:
+                qb.add_condition(Condition("turn_action_seq", "~", turn_sql_pattern))
+            river_sql_pattern = self.river_sql_pattern_var.get().strip()
+            if river_sql_pattern:
+                qb.add_condition(Condition("river_action_seq", "~", river_sql_pattern))
+            button_name = self.button_name_var.get().strip()
+            if button_name:
+                qb.add_condition(Condition("button_name", "=", button_name))
+            position = self.position_var.get().strip()
+            position_player = self.position_player_var.get().strip()
+            if position and position != "None" and position_player:
+                qb.add_condition(Condition(f"positions->>'{position}'", "=", position_player))
+            
+            # Add sorting by created_at in descending order
+            qb.add_sort(SortCriterion("created_at", "DESC"))
+            query = qb.build_query()
+            
+            # Create popup window
+            popup = tk.Toplevel(self)
+            popup.title("Generated SQL Query")
+            popup.geometry("800x600")
+            popup.transient(self)  # Make popup modal to main window
+            popup.grab_set()  # Make popup modal
+            
+            # Create frame for the popup content
+            frame = ttk.Frame(popup, padding="10")
+            frame.pack(fill=tk.BOTH, expand=True)
+            
+            # Add label
+            label = ttk.Label(frame, text="SQL Query that would be executed:", font=("Arial", 12, "bold"))
+            label.pack(pady=(0, 10))
+            
+            # Create text widget with scrollbar
+            text_frame = ttk.Frame(frame)
+            text_frame.pack(fill=tk.BOTH, expand=True)
+            
+            text_widget = tk.Text(text_frame, wrap=tk.WORD, font=("Courier", 10), 
+                                 background="white", relief=tk.SUNKEN, borderwidth=1)
+            scrollbar = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=text_widget.yview)
+            text_widget.configure(yscrollcommand=scrollbar.set)
+            
+            text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            
+            # Insert the query text
+            text_widget.insert(tk.END, query)
+            text_widget.config(state=tk.DISABLED)  # Make it read-only
+            
+            # Add close button
+            close_button = ttk.Button(frame, text="Close", command=popup.destroy)
+            close_button.pack(pady=(10, 0))
+            
+            # Center the popup on the main window
+            popup.update_idletasks()
+            x = self.winfo_x() + (self.winfo_width() // 2) - (popup.winfo_width() // 2)
+            y = self.winfo_y() + (self.winfo_height() // 2) - (popup.winfo_height() // 2)
+            popup.geometry(f"+{x}+{y}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error generating query: {e}")
+
+    def update_matching_state_display(self, hh_data):
+        """
+        Update the matching state name display based on the hand history data.
+        This method is called after a hand is loaded to display the state name.
+        """
+        try:
+            # Get the preflop action sequence from the hand history data
+            pf_sequence = hh_data.get_simple_action_sequence("preflop")
+            
+            # Get the game type from the current selection
+            game_type = self.pf_game_type_var.get().strip()
+            
+            # Look up the state name for this sequence
+            state_name = self.lookup_state_name_for_pf_sequence(pf_sequence, game_type)
+            
+            # Update the display
+            if state_name == "Unnamed":
+                self.matching_state_var.set(f"Unnamed (Sequence: {pf_sequence})")
+            elif state_name.startswith("Error:"):
+                self.matching_state_var.set(f"Error looking up state")
+            else:
+                self.matching_state_var.set(f"{state_name} (Sequence: {pf_sequence})")
+                
+        except Exception as e:
+            print(f"Error updating matching state display: {e}")
+            self.matching_state_var.set("Error updating display")
 
 if __name__ == "__main__":
     app = HandHistoryExplorer()

@@ -1,0 +1,27 @@
+{
+  "ExampleQuery": {
+    "query_conditions": [
+      {
+        "field": "game_type",
+        "operator": "LIKE",
+        "value": "zoom_cash_6max%"
+      },
+      {
+        "field": "pf_action_seq",
+        "operator": "=",
+        "value": "1f2f3f4r5r6r5c"
+      }
+    ],
+    "other_settings": {
+      "display_mode": "detailed"
+    }
+  },
+  "3 players": {
+    "game_type": "",
+    "button_name": "",
+    "player_name": "",
+    "pf_seq": "",
+    "num_players": "6",
+    "index": 0
+  }
+}
