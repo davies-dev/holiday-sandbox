@@ -215,6 +215,11 @@ class HandHistoryExplorer(tk.Tk):
                                              width=50, state="readonly")
         self.matching_state_entry.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
         
+        # Add GTO+ button
+        self.gto_button = ttk.Button(state_display_frame, text="Open GTO+", 
+                                     command=self.open_gto_file, state=tk.DISABLED)
+        self.gto_button.grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
+        
         # --- New: Betting Opportunities Button ---
         opp_btn = ttk.Button(parent, text="Show Betting Opportunities", command=self.show_betting_opportunities)
         opp_btn.pack(fill=tk.X, padx=5, pady=5)
@@ -1449,14 +1454,95 @@ class HandHistoryExplorer(tk.Tk):
             # Update the display
             if state_name == "Unnamed":
                 self.matching_state_var.set(f"Unnamed (Sequence: {pf_sequence})")
+                self.gto_button.config(state=tk.DISABLED)
+                self.gto_button.config(text="Open GTO+")
             elif state_name.startswith("Error:"):
                 self.matching_state_var.set(f"Error looking up state")
+                self.gto_button.config(state=tk.DISABLED)
+                self.gto_button.config(text="Open GTO+")
             else:
                 self.matching_state_var.set(f"{state_name} (Sequence: {pf_sequence})")
+                # Enable GTO+ button and update text
+                self.gto_button.config(state=tk.NORMAL)
+                self.gto_button.config(text=f"Open GTO+ ({state_name})")
                 
         except Exception as e:
             print(f"Error updating matching state display: {e}")
             self.matching_state_var.set("Error updating display")
+            self.gto_button.config(state=tk.DISABLED)
+            self.gto_button.config(text="Open GTO+")
+
+    def open_gto_file(self):
+        """Open the corresponding GTO+ file for the current state"""
+        if not self.current_hand:
+            return
+        
+        # Get current state name
+        state_name = self.matching_state_var.get().split(" (")[0]  # Extract state name
+        game_type = self.pf_game_type_var.get().strip()
+        
+        # Look up GTO+ file path from database
+        gto_path = self.db.get_gto_file_path(state_name, game_type)
+        if not gto_path:
+            messagebox.showwarning("No Mapping", 
+                                  f"No GTO+ mapping found for state {state_name}")
+            return
+        
+        # Use pathlib for cross-platform path handling
+        from pathlib import Path
+        gto_path = Path(gto_path)
+        
+        # Search for the file in multiple locations
+        file_found = False
+        actual_path = None
+        
+        # List of possible locations to search
+        search_paths = []
+        
+        # 1. Original path from database
+        search_paths.append(gto_path)
+        
+        # 2. Processing directory (base path)
+        base_path = Path("C:\\@myfiles\\gtotorunwhenIleave\\")
+        if base_path.exists():
+            # Look for the file with original name
+            processing_path = base_path / gto_path.name
+            search_paths.append(processing_path)
+            
+            # Look for the file with "0 - " prefix
+            processing_path_prefixed = base_path / f"0 - {gto_path.name}"
+            search_paths.append(processing_path_prefixed)
+        
+        # 3. Processed directory
+        processed_base = base_path / "processed"
+        if processed_base.exists():
+            # Look for the file with original name
+            processed_path = processed_base / gto_path.name
+            search_paths.append(processed_path)
+            
+            # Look for the file with "0 - " prefix
+            processed_path_prefixed = processed_base / f"0 - {gto_path.name}"
+            search_paths.append(processed_path_prefixed)
+        
+        # Search through all possible paths
+        for search_path in search_paths:
+            if search_path.exists():
+                file_found = True
+                actual_path = search_path
+                break
+        
+        if file_found and actual_path:
+            try:
+                import webbrowser
+                webbrowser.open(str(actual_path))
+                print(f"Opened GTO+ file: {actual_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not open GTO+ file: {e}")
+        else:
+            # Show all the paths we searched
+            search_paths_str = "\n".join([str(p) for p in search_paths])
+            messagebox.showwarning("File Not Found", 
+                                  f"GTO+ file not found in any of these locations:\n\n{search_paths_str}")
 
 if __name__ == "__main__":
     app = HandHistoryExplorer()
