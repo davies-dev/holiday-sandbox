@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 # Database configuration
 # Environment variables expected:
@@ -21,4 +22,8 @@ DB_PARAMS = {
     "database": DB_NAME,
     "user": DB_USER,
     "password": DB_PASS
-} 
+}
+
+# GTO+ file processing configuration
+# Base path for GTO+ file processing and storage
+GTO_BASE_PATH = Path("C:\\@myfiles\\gtotorunwhenIleave\\") 

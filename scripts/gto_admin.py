@@ -2,7 +2,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from db_access import DatabaseAccess
-from config import DB_PARAMS
+from config import DB_PARAMS, GTO_BASE_PATH
 import os
 import re
 from pathlib import Path
@@ -71,7 +71,7 @@ class GTOAdmin(tk.Tk):
         search_paths.append(original_path)
         
         # 2. Processing directory (base path)
-        base_path = Path("C:\\@myfiles\\gtotorunwhenIleave\\")
+        base_path = GTO_BASE_PATH
         if base_path.exists():
             # Look for the file with original name
             processing_path = base_path / original_path.name
@@ -218,7 +218,7 @@ class GTOAdmin(tk.Tk):
             search_paths.append(original_path)
             
             # 2. Processing directory (base path)
-            base_path = Path("C:\\@myfiles\\gtotorunwhenIleave\\")
+            base_path = GTO_BASE_PATH
             if base_path.exists():
                 # Look for the file with original name
                 processing_path = base_path / original_path.name

@@ -21,7 +21,7 @@ from holiday_parser import (
 from dataclasses import dataclass, field
 from typing import Optional, Dict
 import sys
-from config import DB_PARAMS
+from config import DB_PARAMS, GTO_BASE_PATH
 #from betting_op import BettingOppurtunity
 #from betting_op import * 
 #------------------------------
@@ -1503,7 +1503,7 @@ class HandHistoryExplorer(tk.Tk):
         search_paths.append(gto_path)
         
         # 2. Processing directory (base path)
-        base_path = Path("C:\\@myfiles\\gtotorunwhenIleave\\")
+        base_path = GTO_BASE_PATH
         if base_path.exists():
             # Look for the file with original name
             processing_path = base_path / gto_path.name
