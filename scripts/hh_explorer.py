@@ -31,6 +31,15 @@ from config import DB_PARAMS, GTO_BASE_PATH
 # BettingOpportunity class is now imported from kk10.py
 
 # ------------------------------
+# Review Panel Class
+# ------------------------------
+class ReviewPanel(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+        # Temporary placeholder label
+        ttk.Label(self, text="This is the Review Panel").pack(padx=20, pady=20)
+
+# ------------------------------
 # Main Application: QueryStateBrowser
 # ------------------------------
 class HandHistoryExplorer(tk.Tk):
@@ -48,12 +57,18 @@ class HandHistoryExplorer(tk.Tk):
         self.current_index = 0
         # Keep track of left panel visibility.
         self.left_visible = True
+        # Keep track of review panel visibility.
+        self.review_visible = True
         # Initialize current hand
         self.current_hand = None
 
         # --- Toggle Button for Left Panel ---
         self.toggle_btn = ttk.Button(self, text="Hide Input Panel", command=self.toggle_left_panel)
         self.toggle_btn.pack(side=tk.TOP, anchor=tk.W, padx=5, pady=5)
+        
+        # --- Toggle Button for Review Panel ---
+        self.toggle_review_btn = ttk.Button(self, text="Hide Review Panel", command=self.toggle_review_panel)
+        self.toggle_review_btn.pack(side=tk.TOP, anchor=tk.W, padx=5, pady=5)
         
         # --- Main PanedWindow ---
         self.main_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
@@ -63,6 +78,10 @@ class HandHistoryExplorer(tk.Tk):
         self.left_frame = ttk.Frame(self.main_paned)
         self.build_left_panel(self.left_frame)
         self.main_paned.add(self.left_frame, weight=1)
+        
+        # Review Panel: Review controls and notes.
+        self.review_panel = ReviewPanel(self.main_paned)
+        self.main_paned.add(self.review_panel, weight=1)
         
         # Right Panel: Hand History Display and Navigation.
         self.right_frame = ttk.Frame(self.main_paned)
@@ -301,6 +320,16 @@ class HandHistoryExplorer(tk.Tk):
             self.main_paned.add(self.left_frame, weight=1)
             self.toggle_btn.config(text="Hide Input Panel")
             self.left_visible = True
+    
+    def toggle_review_panel(self):
+        if self.review_visible:
+            self.main_paned.forget(self.review_panel)
+            self.toggle_review_btn.config(text="Show Review Panel")
+            self.review_visible = False
+        else:
+            self.main_paned.add(self.review_panel, weight=1)
+            self.toggle_review_btn.config(text="Hide Review Panel")
+            self.review_visible = True
     
     def load_pf_actions(self):
         game_type = self.pf_game_type_var.get().strip()
