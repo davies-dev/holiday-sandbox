@@ -176,25 +176,16 @@ class DatabaseAccess:
             return None
 
     def update_review_status(self, hand_id, status):
-        """Updates the review status for a hand"""
-        if not self.conn:
-            print("No database connection.")
-            return False
-        
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO hand_reviews (hand_id, review_status, last_updated) 
-                    VALUES (%s, %s, NOW())
-                    ON CONFLICT (hand_id) 
-                    DO UPDATE SET review_status = EXCLUDED.review_status, last_updated = NOW()
-                """, (hand_id, status))
-            self.conn.commit()
-            return True
-        except Exception as e:
-            print(f"Error updating review status: {e}")
-            self.conn.rollback()
-            return False
+        """Updates the review_status for a given hand_id."""
+        # Ensure the review entry exists
+        self.get_or_create_review_data(hand_id)
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE hand_reviews SET review_status = %s, last_updated = NOW() WHERE hand_id = %s",
+                (status, hand_id)
+            )
+        self.conn.commit()
+        print(f"Updated hand {hand_id} status to {status}")
 
     def add_note_for_hand(self, hand_id, file_path):
         """Adds a new note record for a given hand."""

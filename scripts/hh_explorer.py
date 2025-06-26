@@ -64,6 +64,18 @@ class ReviewPanel(ttk.Frame):
         new_note_btn = ttk.Button(note_frame, text="Create New Note", command=self.create_new_hand_note)
         new_note_btn.pack(side=tk.BOTTOM, pady=5)
 
+        # --- Status Widgets ---
+        status_frame = ttk.LabelFrame(self, text="Review Status")
+        status_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.status_var = tk.StringVar()
+        status_options = ['unreviewed', 'eyeballed', 'marked_for_review', 'waiting_on_gto', 'completed']
+        self.status_combo = ttk.Combobox(status_frame, textvariable=self.status_var, values=status_options, state="readonly")
+        self.status_combo.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        save_status_btn = ttk.Button(status_frame, text="Save Status", command=self.save_review_status)
+        save_status_btn.pack(side=tk.LEFT, padx=5, pady=5)
+
     def load_hand_data(self, hand_id):
         """Loads all review info for the specified hand_id and populates the UI."""
         self.current_hand_id = hand_id
@@ -78,6 +90,10 @@ class ReviewPanel(ttk.Frame):
             filename = os.path.basename(note_path)
             # The 'text' parameter populates the #0 column. The 'values' tuple populates the rest.
             self.notes_tree.insert("", tk.END, text=filename, values=(created_at.strftime("%Y-%m-%d %H:%M"),))
+
+        # --- Load and set the status ---
+        review_data = self.db.get_or_create_review_data(hand_id)
+        self.status_var.set(review_data.get('review_status', 'unreviewed'))
 
     def create_new_hand_note(self):
         """Creates a new unique note file and links it to the current hand."""
@@ -193,6 +209,18 @@ class ReviewPanel(ttk.Frame):
         except Exception as e:
             print(f"Error opening note in Obsidian: {e}")
             messagebox.showerror("Error", f"Could not open note in Obsidian.\nError: {str(e)}")
+
+    def save_review_status(self):
+        """Saves the currently selected status to the database."""
+        if not self.current_hand_id:
+            messagebox.showwarning("Warning", "No hand loaded.")
+            return
+        new_status = self.status_var.get()
+        if not new_status:
+            messagebox.showwarning("Warning", "No status selected.")
+            return
+        self.db.update_review_status(self.current_hand_id, new_status)
+        messagebox.showinfo("Success", f"Status for hand {self.current_hand_id} saved as '{new_status}'.")
 
 # ------------------------------
 # Main Application: QueryStateBrowser
@@ -368,20 +396,28 @@ class HandHistoryExplorer(tk.Tk):
         self.player_flop_entry.grid(row=7, column=3, sticky=tk.W, padx=5, pady=5)
         self.player_flop_entry.config(state=tk.DISABLED)  # Initially disabled
         
+        ttk.Label(query_frame, text="Review Status:").grid(row=8, column=0, sticky=tk.E, padx=5, pady=5)
+        self.review_status_filter_var = tk.StringVar(value="All")
+        status_filter_options = ["All", 'unreviewed', 'eyeballed', 'marked_for_review', 'waiting_on_gto', 'completed']
+        self.review_status_filter_combo = ttk.Combobox(query_frame, textvariable=self.review_status_filter_var,
+                                                       values=status_filter_options, state="readonly", width=20)
+        self.review_status_filter_combo.grid(row=8, column=1, sticky=tk.W, padx=5, pady=5)
+        # (You may need to renumber grid rows for widgets below this)
+
         self.query_button = ttk.Button(query_frame, text="Run Query", command=self.run_query)
-        self.query_button.grid(row=8, column=0, columnspan=2, pady=10, sticky=tk.W)
+        self.query_button.grid(row=9, column=0, columnspan=2, pady=10, sticky=tk.W)
         
         # Add Show Query button next to Run Query button
         self.show_query_button = ttk.Button(query_frame, text="Show Query", command=self.show_query)
-        self.show_query_button.grid(row=8, column=2, pady=10, sticky=tk.W)
+        self.show_query_button.grid(row=9, column=2, pady=10, sticky=tk.W)
         
         # Add after the query button
         refresh_btn = ttk.Button(query_frame, text="↻ Refresh Dropdowns", command=self.refresh_all_dropdowns)
-        refresh_btn.grid(row=8, column=3, pady=10, sticky=tk.E)
+        refresh_btn.grid(row=9, column=3, pady=10, sticky=tk.E)
         
         # --- New: State Name Display ---
         state_display_frame = ttk.LabelFrame(query_frame, text="Current Hand State")
-        state_display_frame.grid(row=9, column=0, columnspan=4, sticky=tk.EW, padx=5, pady=5)
+        state_display_frame.grid(row=10, column=0, columnspan=4, sticky=tk.EW, padx=5, pady=5)
         
         ttk.Label(state_display_frame, text="Matching State Name:").grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
         self.matching_state_var = tk.StringVar(value="No hand loaded")
@@ -590,9 +626,14 @@ class HandHistoryExplorer(tk.Tk):
     
     def run_query(self):
         try:
-            qb = QueryBuilder(
-                "SELECT id, game_type, pf_action_seq, flop_action_seq, turn_action_seq, river_action_seq, raw_text FROM hand_histories"
-            )
+            # Use LEFT JOIN to hand_reviews and filter by status if needed
+            base_select = """
+                SELECT hh.id, hh.game_type, hh.pf_action_seq, hh.flop_action_seq, 
+                       hh.turn_action_seq, hh.river_action_seq, hh.raw_text 
+                FROM hand_histories hh
+                LEFT JOIN hand_reviews hr ON hh.id = hr.hand_id
+            """
+            qb = QueryBuilder(base_select)
             qb.add_condition(Condition("game_type", "LIKE", "zoom_cash_6max%"))
             
             # Add time period condition if enabled
@@ -680,6 +721,13 @@ class HandHistoryExplorer(tk.Tk):
             position_player = self.position_player_var.get().strip()
             if position and position != "None" and position_player:
                 qb.add_condition(Condition(f"positions->>'{position}'", "=", position_player))
+            
+            selected_status = self.review_status_filter_var.get()
+            if selected_status != "All":
+                if selected_status == 'unreviewed':
+                    qb.add_condition(Condition("(hr.review_status IS NULL OR hr.review_status = 'unreviewed')", "", ""))
+                else:
+                    qb.add_condition(Condition("hr.review_status", "=", selected_status))
             
             # Add sorting by created_at in descending order
             qb.add_sort(SortCriterion("created_at", "DESC"))
@@ -1575,6 +1623,13 @@ class HandHistoryExplorer(tk.Tk):
             position_player = self.position_player_var.get().strip()
             if position and position != "None" and position_player:
                 qb.add_condition(Condition(f"positions->>'{position}'", "=", position_player))
+            
+            selected_status = self.review_status_filter_var.get()
+            if selected_status != "All":
+                if selected_status == 'unreviewed':
+                    qb.add_condition(Condition("(hr.review_status IS NULL OR hr.review_status = 'unreviewed')", "", ""))
+                else:
+                    qb.add_condition(Condition("hr.review_status", "=", selected_status))
             
             # Add sorting by created_at in descending order
             qb.add_sort(SortCriterion("created_at", "DESC"))
