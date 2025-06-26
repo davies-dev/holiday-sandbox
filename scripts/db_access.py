@@ -151,3 +151,96 @@ class DatabaseAccess:
         except Exception as e:
             print(f"Error getting game types: {e}")
             return []
+
+    # Review System Methods
+    def get_or_create_review_data(self, hand_id):
+        """Fetches review data for a hand_id. If no entry exists, it creates one."""
+        if not self.conn:
+            print("No database connection.")
+            return None
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT hand_id, review_status FROM hand_reviews WHERE hand_id = %s", (hand_id,))
+                data = cur.fetchone()
+                if data:
+                    return {"hand_id": data[0], "review_status": data[1]}
+                else:
+                    cur.execute("INSERT INTO hand_reviews (hand_id) VALUES (%s) RETURNING hand_id, review_status", (hand_id,))
+                    self.conn.commit()
+                    new_data = cur.fetchone()
+                    return {"hand_id": new_data[0], "review_status": new_data[1]}
+        except Exception as e:
+            print(f"Error getting or creating review data: {e}")
+            self.conn.rollback()
+            return None
+
+    def update_review_status(self, hand_id, status):
+        """Updates the review status for a hand"""
+        if not self.conn:
+            print("No database connection.")
+            return False
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO hand_reviews (hand_id, review_status, last_updated) 
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (hand_id) 
+                    DO UPDATE SET review_status = EXCLUDED.review_status, last_updated = NOW()
+                """, (hand_id, status))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error updating review status: {e}")
+            self.conn.rollback()
+            return False
+
+    def add_note_for_hand(self, hand_id, file_path):
+        """Adds a new note record for a given hand."""
+        if not self.conn:
+            print("No database connection.")
+            return False
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("INSERT INTO hand_notes (hand_id, note_file_path) VALUES (%s, %s)", (hand_id, file_path))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error adding note for hand: {e}")
+            self.conn.rollback()
+            return False
+
+    def get_notes_for_hand(self, hand_id):
+        """Retrieves all notes for a given hand, ordered by creation date."""
+        if not self.conn:
+            print("No database connection.")
+            return []
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT note_file_path, created_at FROM hand_notes WHERE hand_id = %s ORDER BY created_at DESC",
+                    (hand_id,)
+                )
+                return cur.fetchall()
+        except Exception as e:
+            print(f"Error getting notes for hand: {e}")
+            return []
+
+    def delete_note_for_hand(self, hand_id, file_path):
+        """Deletes a specific note for a hand"""
+        if not self.conn:
+            print("No database connection.")
+            return False
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("DELETE FROM hand_notes WHERE hand_id = %s AND note_file_path = %s", (hand_id, file_path))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error deleting note: {e}")
+            self.conn.rollback()
+            return False

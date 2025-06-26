@@ -21,6 +21,11 @@ from holiday_parser import (
 from dataclasses import dataclass, field
 from typing import Optional, Dict
 import sys
+import os
+import webbrowser
+import pathlib
+import urllib.parse
+from datetime import datetime
 from config import DB_PARAMS, GTO_BASE_PATH
 #from betting_op import BettingOppurtunity
 #from betting_op import * 
@@ -34,10 +39,160 @@ from config import DB_PARAMS, GTO_BASE_PATH
 # Review Panel Class
 # ------------------------------
 class ReviewPanel(ttk.Frame):
-    def __init__(self, parent):
-        super().__init__(parent)
-        # Temporary placeholder label
-        ttk.Label(self, text="This is the Review Panel").pack(padx=20, pady=20)
+    def __init__(self, parent, db_access, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.db = db_access
+        self.current_hand_id = None
+
+        # --- CONFIGURATION (IMPORTANT: Change these paths to your Obsidian vault) ---
+        # Path to the root of your Obsidian Vault
+        self.OBSIDIAN_VAULT_PATH = "C:/projects/hh-explorer-vault/hh_explorer"
+        # The exact name of your vault as it appears in the Obsidian app
+        self.OBSIDIAN_VAULT_NAME = "hh_explorer"
+        # --- Widgets ---
+        note_frame = ttk.LabelFrame(self, text="Hand Notes")
+        note_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        self.notes_tree = ttk.Treeview(note_frame, columns=("created_at"), show="headings")
+        self.notes_tree.heading("#0", text="Note File") # The implicit first column
+        self.notes_tree.heading("created_at", text="Date Created")
+        self.notes_tree.column("#0", width=200, anchor='w')
+        self.notes_tree.column("created_at", width=150, anchor='center')
+        self.notes_tree.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.notes_tree.bind("<Double-1>", self.open_selected_note)
+
+        new_note_btn = ttk.Button(note_frame, text="Create New Note", command=self.create_new_hand_note)
+        new_note_btn.pack(side=tk.BOTTOM, pady=5)
+
+    def load_hand_data(self, hand_id):
+        """Loads all review info for the specified hand_id and populates the UI."""
+        self.current_hand_id = hand_id
+        
+        # Clear the tree of notes from the previous hand
+        for item in self.notes_tree.get_children():
+            self.notes_tree.delete(item)
+
+        # Fetch and display all notes for the current hand
+        notes = self.db.get_notes_for_hand(hand_id)
+        for note_path, created_at in notes:
+            filename = os.path.basename(note_path)
+            # The 'text' parameter populates the #0 column. The 'values' tuple populates the rest.
+            self.notes_tree.insert("", tk.END, text=filename, values=(created_at.strftime("%Y-%m-%d %H:%M"),))
+
+    def create_new_hand_note(self):
+        """Creates a new unique note file and links it to the current hand."""
+        if not self.current_hand_id:
+            messagebox.showerror("Error", "No hand is loaded.")
+            return
+        
+        try:
+            # Generate a unique filename using a precise timestamp
+            notes_dir = os.path.join(self.OBSIDIAN_VAULT_PATH, "HandNotes")
+            
+            # Debug information
+            print(f"Creating notes directory: {notes_dir}")
+            print(f"OBSIDIAN_VAULT_PATH: {self.OBSIDIAN_VAULT_PATH}")
+            
+            # Create directory with better error handling
+            try:
+                os.makedirs(notes_dir, exist_ok=True)
+                print(f"Successfully created/verified directory: {notes_dir}")
+            except PermissionError as e:
+                error_msg = f"Permission denied creating directory: {notes_dir}\n\nPlease check:\n1. Directory permissions\n2. Run as administrator if needed\n3. Choose a different path"
+                messagebox.showerror("Permission Error", error_msg)
+                print(f"Permission error: {e}")
+                return
+            except Exception as e:
+                error_msg = f"Error creating directory: {notes_dir}\n\nError: {str(e)}"
+                messagebox.showerror("Directory Error", error_msg)
+                print(f"Directory creation error: {e}")
+                return
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            note_path = os.path.join(notes_dir, f"Hand_{self.current_hand_id}_{timestamp}.md")
+            
+            print(f"Creating note file: {note_path}")
+            
+            # Create the file on disk and add its record to the database
+            try:
+                with open(note_path, 'w') as f:
+                    f.write(f"# Notes for Hand ID: {self.current_hand_id}\n")
+                    f.write(f"# Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                
+                print(f"Successfully created note file: {note_path}")
+                
+                # Add to database
+                success = self.db.add_note_for_hand(self.current_hand_id, note_path)
+                if not success:
+                    messagebox.showerror("Database Error", "Failed to add note to database.")
+                    return
+                
+                # Refresh the list in the UI and open the new note immediately
+                self.load_hand_data(self.current_hand_id)
+                
+                # Open the note in Obsidian using the Obsidian URI scheme
+                try:
+                    # Get the path of the note relative to the vault's root directory
+                    relative_path = os.path.relpath(note_path, self.OBSIDIAN_VAULT_PATH)
+                    # URL-encode the path to handle spaces and special characters
+                    encoded_path = urllib.parse.quote(relative_path.replace(os.sep, '/')) # Ensure forward slashes
+                    
+                    # Construct the final URI
+                    obsidian_uri = f"obsidian://open?vault={self.OBSIDIAN_VAULT_NAME}&file={encoded_path}"
+                    
+                    print(f"Opening Obsidian URI: {obsidian_uri}")
+                    webbrowser.open(obsidian_uri)
+                    print(f"Opened note in Obsidian: {note_path}")
+                except Exception as e:
+                    print(f"Warning: Could not open note in Obsidian: {e}")
+                    messagebox.showinfo("Note Created", f"Note created successfully at:\n{note_path}\n\nPlease open it manually in Obsidian.")
+                
+            except PermissionError as e:
+                error_msg = f"Permission denied creating file: {note_path}\n\nPlease check file permissions."
+                messagebox.showerror("File Permission Error", error_msg)
+                print(f"File permission error: {e}")
+                return
+            except Exception as e:
+                error_msg = f"Error creating note file: {note_path}\n\nError: {str(e)}"
+                messagebox.showerror("File Error", error_msg)
+                print(f"File creation error: {e}")
+                return
+                
+        except Exception as e:
+            error_msg = f"Unexpected error creating note: {str(e)}"
+            messagebox.showerror("Unexpected Error", error_msg)
+            print(f"Unexpected error in create_new_hand_note: {e}")
+            return
+
+    def open_selected_note(self, event):
+        """Opens the note file that is double-clicked in the Treeview."""
+        selected_item = self.notes_tree.focus()
+        if not selected_item: return
+
+        filename = self.notes_tree.item(selected_item, 'text')
+        # For robustness, we reconstruct the full path. Storing it in the item is also an option.
+        notes_dir = os.path.join(self.OBSIDIAN_VAULT_PATH, "HandNotes")
+        full_path = os.path.join(notes_dir, filename)
+
+        if not os.path.exists(full_path):
+            messagebox.showerror("Error", f"File not found. It may have been moved or deleted.\nPath: {full_path}")
+            return
+
+        # Open the note in Obsidian using the Obsidian URI scheme
+        try:
+            # Get the path of the note relative to the vault's root directory
+            relative_path = os.path.relpath(full_path, self.OBSIDIAN_VAULT_PATH)
+            # URL-encode the path to handle spaces and special characters
+            encoded_path = urllib.parse.quote(relative_path.replace(os.sep, '/')) # Ensure forward slashes
+            
+            # Construct the final URI
+            obsidian_uri = f"obsidian://open?vault={self.OBSIDIAN_VAULT_NAME}&file={encoded_path}"
+            
+            print(f"Opening Obsidian URI: {obsidian_uri}")
+            webbrowser.open(obsidian_uri)
+        except Exception as e:
+            print(f"Error opening note in Obsidian: {e}")
+            messagebox.showerror("Error", f"Could not open note in Obsidian.\nError: {str(e)}")
 
 # ------------------------------
 # Main Application: QueryStateBrowser
@@ -80,7 +235,7 @@ class HandHistoryExplorer(tk.Tk):
         self.main_paned.add(self.left_frame, weight=1)
         
         # Review Panel: Review controls and notes.
-        self.review_panel = ReviewPanel(self.main_paned)
+        self.review_panel = ReviewPanel(self.main_paned, self.db)
         self.main_paned.add(self.review_panel, weight=1)
         
         # Right Panel: Hand History Display and Navigation.
@@ -627,6 +782,10 @@ class HandHistoryExplorer(tk.Tk):
                 self.result_text.insert(tk.END, display_text)
                 # Load the hand data
                 self.load_hand(row)
+                
+                # --- Add this line to link the main app to the review panel ---
+                if self.current_hand:
+                    self.review_panel.load_hand_data(self.current_hand["hand_id"])
             
             self.prev_button.config(state=tk.NORMAL if self.current_index > 0 else tk.DISABLED)
             self.next_button.config(state=tk.NORMAL if self.current_index < len(self.query_results)-1 else tk.DISABLED)
