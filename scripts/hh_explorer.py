@@ -76,24 +76,36 @@ class ReviewPanel(ttk.Frame):
         save_status_btn = ttk.Button(status_frame, text="Save Status", command=self.save_review_status)
         save_status_btn.pack(side=tk.LEFT, padx=5, pady=5)
 
-    def load_hand_data(self, hand_id):
-        """Loads all review info for the specified hand_id and populates the UI."""
+        # --- Analysis Tools Widgets ---
+        tools_frame = ttk.LabelFrame(self, text="Analysis Tools")
+        tools_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.gto_button = ttk.Button(tools_frame, text="Open GTO+", command=self.open_gto_file, state=tk.DISABLED)
+        self.gto_button.pack(side=tk.LEFT, padx=5, pady=5)
+        self.matching_state_name = ""
+
+    def load_hand_data(self, hand_id, hh_data, game_type):
         self.current_hand_id = hand_id
-        
-        # Clear the tree of notes from the previous hand
-        for item in self.notes_tree.get_children():
-            self.notes_tree.delete(item)
-
-        # Fetch and display all notes for the current hand
-        notes = self.db.get_notes_for_hand(hand_id)
-        for note_path, created_at in notes:
-            filename = os.path.basename(note_path)
-            # The 'text' parameter populates the #0 column. The 'values' tuple populates the rest.
-            self.notes_tree.insert("", tk.END, text=filename, values=(created_at.strftime("%Y-%m-%d %H:%M"),))
-
-        # --- Load and set the status ---
+        self.current_game_type = game_type
+        pf_sequence = hh_data.get_simple_action_sequence("preflop")
+        state_name = self.lookup_state_name_for_pf_sequence(pf_sequence, game_type)
+        self.matching_state_name = state_name
+        if state_name and state_name != "Unnamed" and not state_name.startswith("Error:"):
+            self.gto_button.config(state=tk.NORMAL, text=f"Open GTO+ ({state_name})")
+        else:
+            self.gto_button.config(state=tk.DISABLED, text="Open GTO+")
         review_data = self.db.get_or_create_review_data(hand_id)
         self.status_var.set(review_data.get('review_status', 'unreviewed'))
+        self._refresh_notes_tree()
+
+    def _refresh_notes_tree(self):
+        """Clears and re-populates the notes tree from the database."""
+        for item in self.notes_tree.get_children():
+            self.notes_tree.delete(item)
+        if self.current_hand_id:
+            notes = self.db.get_notes_for_hand(self.current_hand_id)
+            for note_path, created_at in notes:
+                filename = os.path.basename(note_path)
+                self.notes_tree.insert("", tk.END, text=filename, values=(created_at.strftime("%Y-%m-%d %H:%M"),))
 
     def create_new_hand_note(self):
         """Creates a new unique note file and links it to the current hand."""
@@ -144,7 +156,7 @@ class ReviewPanel(ttk.Frame):
                     return
                 
                 # Refresh the list in the UI and open the new note immediately
-                self.load_hand_data(self.current_hand_id)
+                self._refresh_notes_tree()
                 
                 # Open the note in Obsidian using the Obsidian URI scheme
                 try:
@@ -221,6 +233,66 @@ class ReviewPanel(ttk.Frame):
             return
         self.db.update_review_status(self.current_hand_id, new_status)
         messagebox.showinfo("Success", f"Status for hand {self.current_hand_id} saved as '{new_status}'.")
+
+    def lookup_state_name_for_pf_sequence(self, pf_sequence, game_type):
+        if not pf_sequence:
+            return "No sequence"
+        try:
+            query = (
+                f"SELECT state_name FROM hand_state "
+                f"WHERE state_type = 'preflop' AND game_type = %s AND state_value = %s"
+            )
+            with self.db.conn.cursor() as cur:
+                cur.execute(query, (game_type, pf_sequence))
+                result = cur.fetchone()
+            if result:
+                return result[0]
+            else:
+                return "Unnamed"
+        except Exception as e:
+            print(f"Error looking up state name for sequence {pf_sequence}: {e}")
+            return f"Error: {e}"
+
+    def open_gto_file(self):
+        state_name = self.matching_state_name
+        game_type = self.current_game_type
+        gto_path = self.db.get_gto_file_path(state_name, game_type)
+        if not gto_path:
+            messagebox.showwarning("No Mapping", f"No GTO+ mapping found for state {state_name}")
+            return
+        from pathlib import Path
+        gto_path = Path(gto_path)
+        file_found = False
+        actual_path = None
+        search_paths = [gto_path]
+        from config import GTO_BASE_PATH
+        base_path = GTO_BASE_PATH
+        if base_path.exists():
+            processing_path = base_path / gto_path.name
+            search_paths.append(processing_path)
+            processing_path_prefixed = base_path / f"0 - {gto_path.name}"
+            search_paths.append(processing_path_prefixed)
+        processed_base = base_path / "processed"
+        if processed_base.exists():
+            processed_path = processed_base / gto_path.name
+            search_paths.append(processed_path)
+            processed_path_prefixed = processed_base / f"0 - {gto_path.name}"
+            search_paths.append(processed_path_prefixed)
+        for search_path in search_paths:
+            if search_path.exists():
+                file_found = True
+                actual_path = search_path
+                break
+        if file_found and actual_path:
+            try:
+                import webbrowser
+                webbrowser.open(str(actual_path))
+                print(f"Opened GTO+ file: {actual_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not open GTO+ file: {e}")
+        else:
+            search_paths_str = "\n".join([str(p) for p in search_paths])
+            messagebox.showwarning("File Not Found", f"GTO+ file not found in any of these locations:\n\n{search_paths_str}")
 
 # ------------------------------
 # Main Application: QueryStateBrowser
@@ -424,11 +496,6 @@ class HandHistoryExplorer(tk.Tk):
         self.matching_state_entry = ttk.Entry(state_display_frame, textvariable=self.matching_state_var, 
                                              width=50, state="readonly")
         self.matching_state_entry.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
-        
-        # Add GTO+ button
-        self.gto_button = ttk.Button(state_display_frame, text="Open GTO+", 
-                                     command=self.open_gto_file, state=tk.DISABLED)
-        self.gto_button.grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
         
         # --- New: Betting Opportunities Button ---
         opp_btn = ttk.Button(parent, text="Show Betting Opportunities", command=self.show_betting_opportunities)
@@ -833,7 +900,7 @@ class HandHistoryExplorer(tk.Tk):
                 
                 # --- Add this line to link the main app to the review panel ---
                 if self.current_hand:
-                    self.review_panel.load_hand_data(self.current_hand["hand_id"])
+                    self.review_panel.load_hand_data(self.current_hand["hand_id"], hh_data, game_type)
             
             self.prev_button.config(state=tk.NORMAL if self.current_index > 0 else tk.DISABLED)
             self.next_button.config(state=tk.NORMAL if self.current_index < len(self.query_results)-1 else tk.DISABLED)
@@ -1119,9 +1186,6 @@ class HandHistoryExplorer(tk.Tk):
             hh_data.compute_betting_opportunities()  # Compute betting opportunities
             self.current_hand["hand_history_data"] = hh_data
             
-            # Update the matching state name display
-            self.update_matching_state_display(hh_data)
-            
         except Exception as e:
             messagebox.showerror("Error", f"Error loading hand: {str(e)}\nThe application will continue running.")
             self.current_hand = None
@@ -1406,52 +1470,6 @@ class HandHistoryExplorer(tk.Tk):
             print("Error retrieving preflop patterns from DB:", e)
         return patterns
 
-    def lookup_state_name_for_pf_sequence(self, pf_sequence, game_type):
-        """
-        Look up the state name that matches a given preflop action sequence.
-        
-        Args:
-            pf_sequence (str): The preflop action sequence to look up
-            game_type (str): The game type (e.g., 'zoom_cash_6max')
-        
-        Returns:
-            str: The state name if found, "Unnamed" if not found, or error message
-        """
-        if not pf_sequence:
-            return "No sequence"
-        
-        try:
-            # Query the hand_state table to find a matching state
-            query = (
-                f"SELECT state_name FROM hand_state "
-                f"WHERE state_type = 'preflop' AND game_type = %s AND state_value = %s"
-            )
-            
-            with self.db.conn.cursor() as cur:
-                cur.execute(query, (game_type, pf_sequence))
-                result = cur.fetchone()
-                
-            if result:
-                return result[0]
-            else:
-                return "Unnamed"
-                
-        except Exception as e:
-            print(f"Error looking up state name for sequence {pf_sequence}: {e}")
-            return f"Error: {e}"
-
-    def toggle_time_period(self):
-        if self.time_period_var.get():
-            self.time_period_entry.config(state=tk.NORMAL)
-        else:
-            self.time_period_entry.config(state=tk.DISABLED)
-
-    def toggle_player_flop(self):
-        if self.player_flop_var.get():
-            self.player_flop_entry.config(state=tk.NORMAL)
-        else:
-            self.player_flop_entry.config(state=tk.DISABLED)
-
     def analyze_pf_sequence_for_flop_positions(self, pf_sequence):
         """
         Analyze a preflop action sequence to determine which positions are likely to see the flop.
@@ -1679,113 +1697,17 @@ class HandHistoryExplorer(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"Error generating query: {e}")
 
-    def update_matching_state_display(self, hh_data):
-        """
-        Update the matching state name display based on the hand history data.
-        This method is called after a hand is loaded to display the state name.
-        """
-        try:
-            # Get the preflop action sequence from the hand history data
-            pf_sequence = hh_data.get_simple_action_sequence("preflop")
-            
-            # Get the game type from the current selection
-            game_type = self.pf_game_type_var.get().strip()
-            
-            # Look up the state name for this sequence
-            state_name = self.lookup_state_name_for_pf_sequence(pf_sequence, game_type)
-            
-            # Update the display
-            if state_name == "Unnamed":
-                self.matching_state_var.set(f"Unnamed (Sequence: {pf_sequence})")
-                self.gto_button.config(state=tk.DISABLED)
-                self.gto_button.config(text="Open GTO+")
-            elif state_name.startswith("Error:"):
-                self.matching_state_var.set(f"Error looking up state")
-                self.gto_button.config(state=tk.DISABLED)
-                self.gto_button.config(text="Open GTO+")
-            else:
-                self.matching_state_var.set(f"{state_name} (Sequence: {pf_sequence})")
-                # Enable GTO+ button and update text
-                self.gto_button.config(state=tk.NORMAL)
-                self.gto_button.config(text=f"Open GTO+ ({state_name})")
-                
-        except Exception as e:
-            print(f"Error updating matching state display: {e}")
-            self.matching_state_var.set("Error updating display")
-            self.gto_button.config(state=tk.DISABLED)
-            self.gto_button.config(text="Open GTO+")
-
-    def open_gto_file(self):
-        """Open the corresponding GTO+ file for the current state"""
-        if not self.current_hand:
-            return
-        
-        # Get current state name
-        state_name = self.matching_state_var.get().split(" (")[0]  # Extract state name
-        game_type = self.pf_game_type_var.get().strip()
-        
-        # Look up GTO+ file path from database
-        gto_path = self.db.get_gto_file_path(state_name, game_type)
-        if not gto_path:
-            messagebox.showwarning("No Mapping", 
-                                  f"No GTO+ mapping found for state {state_name}")
-            return
-        
-        # Use pathlib for cross-platform path handling
-        from pathlib import Path
-        gto_path = Path(gto_path)
-        
-        # Search for the file in multiple locations
-        file_found = False
-        actual_path = None
-        
-        # List of possible locations to search
-        search_paths = []
-        
-        # 1. Original path from database
-        search_paths.append(gto_path)
-        
-        # 2. Processing directory (base path)
-        base_path = GTO_BASE_PATH
-        if base_path.exists():
-            # Look for the file with original name
-            processing_path = base_path / gto_path.name
-            search_paths.append(processing_path)
-            
-            # Look for the file with "0 - " prefix
-            processing_path_prefixed = base_path / f"0 - {gto_path.name}"
-            search_paths.append(processing_path_prefixed)
-        
-        # 3. Processed directory
-        processed_base = base_path / "processed"
-        if processed_base.exists():
-            # Look for the file with original name
-            processed_path = processed_base / gto_path.name
-            search_paths.append(processed_path)
-            
-            # Look for the file with "0 - " prefix
-            processed_path_prefixed = processed_base / f"0 - {gto_path.name}"
-            search_paths.append(processed_path_prefixed)
-        
-        # Search through all possible paths
-        for search_path in search_paths:
-            if search_path.exists():
-                file_found = True
-                actual_path = search_path
-                break
-        
-        if file_found and actual_path:
-            try:
-                import webbrowser
-                webbrowser.open(str(actual_path))
-                print(f"Opened GTO+ file: {actual_path}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Could not open GTO+ file: {e}")
+    def toggle_time_period(self):
+        if self.time_period_var.get():
+            self.time_period_entry.config(state=tk.NORMAL)
         else:
-            # Show all the paths we searched
-            search_paths_str = "\n".join([str(p) for p in search_paths])
-            messagebox.showwarning("File Not Found", 
-                                  f"GTO+ file not found in any of these locations:\n\n{search_paths_str}")
+            self.time_period_entry.config(state=tk.DISABLED)
+
+    def toggle_player_flop(self):
+        if self.player_flop_var.get():
+            self.player_flop_entry.config(state=tk.NORMAL)
+        else:
+            self.player_flop_entry.config(state=tk.DISABLED)
 
 if __name__ == "__main__":
     app = HandHistoryExplorer()
