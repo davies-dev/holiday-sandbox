@@ -8,39 +8,148 @@ class LibrarianApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Study Librarian")
-        self.geometry("800x600")
+        self.geometry("1000x700")  # Made window a bit wider
 
         self.db = DatabaseAccess(**DB_PARAMS)
+        self.selected_doc_id = None
 
-        # --- Main Frame ---
-        main_frame = ttk.Frame(self, padding="10")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        # --- Main Paned Window Layout ---
+        self.main_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
+        self.main_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # --- Document List ---
-        tree_frame = ttk.LabelFrame(main_frame, text="Study Documents")
-        tree_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        # --- Left Panel: Document List ---
+        left_frame = ttk.Frame(self.main_paned)
+        self.build_left_panel(left_frame)
+        self.main_paned.add(left_frame, weight=2)
 
-        self.docs_tree = ttk.Treeview(tree_frame, columns=("id", "title", "path"), show="headings")
+        # --- Right Panel: Document Details and Tags ---
+        right_frame = ttk.Frame(self.main_paned)
+        self.build_right_panel(right_frame)
+        self.main_paned.add(right_frame, weight=1)
+
+        # Initial load of data
+        self.populate_docs_tree()
+
+    def build_left_panel(self, parent):
+        docs_frame = ttk.LabelFrame(parent, text="All Study Documents")
+        docs_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.docs_tree = ttk.Treeview(docs_frame, columns=("id", "title", "path"), show="headings", selectmode="browse")
         self.docs_tree.heading("id", text="ID")
         self.docs_tree.heading("title", text="Title")
         self.docs_tree.heading("path", text="File Path")
         self.docs_tree.column("id", width=50, anchor='center')
         self.docs_tree.column("title", width=300)
         self.docs_tree.column("path", width=400)
-        self.docs_tree.pack(fill=tk.BOTH, expand=True)
+        self.docs_tree.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
+        self.docs_tree.bind("<<TreeviewSelect>>", self.on_document_select)
 
-        # --- Button Panel ---
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=5)
+        button_frame = ttk.Frame(docs_frame)
+        button_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=5)
+        ttk.Button(button_frame, text="Add New Document", command=self.add_new_document).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Refresh List", command=self.populate_docs_tree).pack(side=tk.LEFT, padx=5)
 
-        add_btn = ttk.Button(button_frame, text="Add New Document", command=self.add_new_document)
-        add_btn.pack(side=tk.LEFT, padx=5)
+    def build_right_panel(self, parent):
+        tags_frame = ttk.LabelFrame(parent, text="Tags for Selected Document")
+        tags_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.tags_tree = ttk.Treeview(tags_frame, columns=("id"), show="headings", selectmode="browse")
+        self.tags_tree.heading("id", text="ID")
+        self.tags_tree.column("id", width=40, anchor='center')
+        self.tags_tree.heading("#0", text="Tag Name")
+        self.tags_tree.column("#0", width=150)
+        self.tags_tree.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
+
+        button_frame = ttk.Frame(tags_frame)
+        button_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=5)
+        ttk.Button(button_frame, text="Assign Tag", command=self.assign_tag).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Remove Tag", command=self.remove_tag).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Create New Tag", command=self.create_new_tag).pack(side=tk.RIGHT, padx=5)
+
+    def on_document_select(self, event):
+        selection = self.docs_tree.selection()
+        if not selection: 
+            return
         
-        refresh_btn = ttk.Button(button_frame, text="Refresh List", command=self.populate_docs_tree)
-        refresh_btn.pack(side=tk.LEFT, padx=5)
+        doc_item = self.docs_tree.item(selection[0])
+        self.selected_doc_id = doc_item['values'][0]
+        self.populate_tags_tree()
 
-        # Initial load of data
-        self.populate_docs_tree()
+    def populate_tags_tree(self):
+        for item in self.tags_tree.get_children():
+            self.tags_tree.delete(item)
+        if self.selected_doc_id:
+            tags = self.db.get_tags_for_document(self.selected_doc_id)
+            for tag_id, tag_name in tags:
+                self.tags_tree.insert("", tk.END, text=tag_name, values=(tag_id,))
+
+    def assign_tag(self):
+        if not self.selected_doc_id:
+            messagebox.showwarning("Warning", "Please select a document first.")
+            return
+        
+        # Create a simple dialog with a dropdown of all available tags
+        all_tags = self.db.get_all_tags()
+        tag_names = {name: tag_id for tag_id, name in all_tags}
+
+        if not tag_names:
+            messagebox.showinfo("Info", "No tags exist. Please create one first.")
+            return
+
+        dialog = tk.Toplevel(self)
+        dialog.title("Assign Tag")
+        dialog.geometry("300x150")
+        dialog.transient(self)  # Make dialog modal to main window
+        dialog.grab_set()  # Make dialog modal
+        
+        tk.Label(dialog, text="Select a tag to assign:").pack(padx=10, pady=5)
+        
+        tag_var = tk.StringVar(dialog)
+        tag_dropdown = ttk.Combobox(dialog, textvariable=tag_var, values=list(tag_names.keys()), state="readonly")
+        tag_dropdown.pack(padx=10, pady=5)
+        
+        def on_ok():
+            selected_tag_name = tag_var.get()
+            if selected_tag_name:
+                selected_tag_id = tag_names[selected_tag_name]
+                if self.db.assign_tag_to_document(self.selected_doc_id, selected_tag_id):
+                    self.populate_tags_tree()
+                    messagebox.showinfo("Success", f"Tag '{selected_tag_name}' assigned successfully.")
+                else:
+                    messagebox.showerror("Error", "Failed to assign tag. It may already be assigned.")
+            dialog.destroy()
+        
+        def on_cancel():
+            dialog.destroy()
+        
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=10)
+        ttk.Button(button_frame, text="OK", command=on_ok).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=on_cancel).pack(side=tk.LEFT, padx=5)
+
+    def remove_tag(self):
+        selection = self.tags_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a tag to remove.")
+            return
+        
+        tag_id = self.tags_tree.item(selection[0])['values'][0]
+        tag_name = self.tags_tree.item(selection[0])['text']
+        
+        if messagebox.askyesno("Confirm Removal", f"Are you sure you want to remove the tag '{tag_name}' from this document?"):
+            if self.db.remove_tag_from_document(self.selected_doc_id, tag_id):
+                self.populate_tags_tree()
+                messagebox.showinfo("Success", f"Tag '{tag_name}' removed successfully.")
+            else:
+                messagebox.showerror("Error", "Failed to remove tag.")
+
+    def create_new_tag(self):
+        tag_name = simpledialog.askstring("Create Tag", "Enter the new tag name (e.g., DelayedCBetOOP):")
+        if tag_name:
+            if self.db.create_tag(tag_name):
+                messagebox.showinfo("Success", f"Tag '{tag_name}' created.")
+            else:
+                messagebox.showerror("Error", "Could not create tag. Does it already exist?")
 
     def populate_docs_tree(self):
         """Clears and re-populates the document list from the database."""

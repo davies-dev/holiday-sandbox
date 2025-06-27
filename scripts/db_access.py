@@ -256,3 +256,86 @@ class DatabaseAccess:
                 self.conn.rollback()
                 print(f"Error adding study document: {e}")
                 return False
+
+    # Tag Management Methods
+    def create_tag(self, tag_name, description=''):
+        """Creates a new tag in the study_tags table."""
+        if not self.conn:
+            print("No database connection.")
+            return False
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("INSERT INTO study_tags (tag_name, description) VALUES (%s, %s)", (tag_name, description))
+                self.conn.commit()
+                return True
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error creating tag: {e}")
+            return False
+
+    def get_all_tags(self):
+        """Retrieves all tags from the study_tags table."""
+        if not self.conn:
+            print("No database connection.")
+            return []
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT id, tag_name FROM study_tags ORDER BY tag_name")
+                return cur.fetchall()
+        except Exception as e:
+            print(f"Error getting all tags: {e}")
+            return []
+
+    def get_tags_for_document(self, document_id):
+        """Retrieves all tags assigned to a specific document."""
+        if not self.conn:
+            print("No database connection.")
+            return []
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("""
+                    SELECT t.id, t.tag_name
+                    FROM study_tags t
+                    JOIN study_document_tags sdt ON t.id = sdt.tag_id
+                    WHERE sdt.document_id = %s
+                    ORDER BY t.tag_name
+                """, (document_id,))
+                return cur.fetchall()
+        except Exception as e:
+            print(f"Error getting tags for document: {e}")
+            return []
+
+    def assign_tag_to_document(self, document_id, tag_id):
+        """Creates a link between a document and a tag."""
+        if not self.conn:
+            print("No database connection.")
+            return False
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("INSERT INTO study_document_tags (document_id, tag_id) VALUES (%s, %s)", (document_id, tag_id))
+                self.conn.commit()
+                return True
+        except Exception as e:  # This will fail if the link already exists
+            self.conn.rollback()
+            print(f"Error assigning tag: {e}")
+            return False
+
+    def remove_tag_from_document(self, document_id, tag_id):
+        """Removes a link between a document and a tag."""
+        if not self.conn:
+            print("No database connection.")
+            return False
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("DELETE FROM study_document_tags WHERE document_id = %s AND tag_id = %s", (document_id, tag_id))
+                self.conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error removing tag from document: {e}")
+            self.conn.rollback()
+            return False
