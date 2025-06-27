@@ -30,10 +30,23 @@ def create_study_tables(conn):
         PRIMARY KEY (document_id, tag_id)
     );
     """
+    create_study_tag_rules = """
+    CREATE TABLE IF NOT EXISTS study_tag_rules (
+        id SERIAL PRIMARY KEY,
+        tag_id INT NOT NULL REFERENCES study_tags(id) ON DELETE CASCADE,
+        rule_description TEXT,
+        pf_action_seq_pattern TEXT,
+        flop_action_seq_pattern TEXT,
+        turn_action_seq_pattern TEXT,
+        river_action_seq_pattern TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    """
     with conn.cursor() as cur:
         cur.execute(create_study_documents)
         cur.execute(create_study_tags)
         cur.execute(create_study_document_tags)
+        cur.execute(create_study_tag_rules)
     conn.commit()
 
 def main():

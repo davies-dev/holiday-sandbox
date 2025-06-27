@@ -4,11 +4,89 @@ from tkinter import ttk, filedialog, simpledialog, messagebox
 from scripts.db_access import DatabaseAccess # Fixed import path
 from scripts.config import DB_PARAMS # Fixed import path
 
+class RuleEditorWindow(tk.Toplevel):
+    def __init__(self, parent, db, rule_data, callback):
+        super().__init__(parent)
+        self.title("Rule Editor")
+        self.geometry("600x400")
+        self.db = db
+        self.rule_data = rule_data  # This is a dictionary
+        self.callback = callback  # Function to call when saved
+
+        # Make dialog modal
+        self.transient(parent)
+        self.grab_set()
+
+        self.desc_var = tk.StringVar(value=self.rule_data.get('rule_description', ''))
+        self.pf_var = tk.StringVar(value=self.rule_data.get('pf_pattern', ''))
+        self.flop_var = tk.StringVar(value=self.rule_data.get('flop_pattern', ''))
+        self.turn_var = tk.StringVar(value=self.rule_data.get('turn_pattern', ''))
+        self.river_var = tk.StringVar(value=self.rule_data.get('river_pattern', ''))
+
+        # Create main frame with padding
+        main_frame = ttk.Frame(self, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Create labels and entry widgets
+        fields = [
+            ("Description", self.desc_var, "Brief description of the rule (e.g., 'OOP Check/Call, Turn Bet')"),
+            ("Preflop Pattern", self.pf_var, "Regex pattern for preflop action sequence"),
+            ("Flop Pattern", self.flop_var, "Regex pattern for flop action sequence"),
+            ("Turn Pattern", self.turn_var, "Regex pattern for turn action sequence"),
+            ("River Pattern", self.river_var, "Regex pattern for river action sequence")
+        ]
+        
+        for i, (text, var, help_text) in enumerate(fields):
+            # Label
+            ttk.Label(main_frame, text=text + ":", font=("Arial", 10, "bold")).grid(
+                row=i*2, column=0, padx=5, pady=(10,2), sticky='w'
+            )
+            
+            # Help text
+            ttk.Label(main_frame, text=help_text, font=("Arial", 8), foreground="gray").grid(
+                row=i*2+1, column=0, padx=5, pady=(0,5), sticky='w'
+            )
+            
+            # Entry widget
+            entry = ttk.Entry(main_frame, textvariable=var, width=60)
+            entry.grid(row=i*2+1, column=1, padx=5, pady=(0,5), sticky='ew')
+
+        # Button frame
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=len(fields)*2, column=0, columnspan=2, pady=20)
+        
+        save_btn = ttk.Button(button_frame, text="Save Rule", command=self.save_and_close)
+        save_btn.pack(side=tk.LEFT, padx=5)
+        
+        cancel_btn = ttk.Button(button_frame, text="Cancel", command=self.destroy)
+        cancel_btn.pack(side=tk.LEFT, padx=5)
+
+        # Configure grid weights
+        main_frame.columnconfigure(1, weight=1)
+        
+        # Focus on first entry
+        main_frame.focus_set()
+
+    def save_and_close(self):
+        # Update the dictionary with values from the UI
+        self.rule_data['rule_description'] = self.desc_var.get()
+        self.rule_data['pf_pattern'] = self.pf_var.get()
+        self.rule_data['flop_pattern'] = self.flop_var.get()
+        self.rule_data['turn_pattern'] = self.turn_var.get()
+        self.rule_data['river_pattern'] = self.river_var.get()
+        
+        if self.db.save_rule(self.rule_data):
+            self.callback()  # Refresh the list in the main window
+            messagebox.showinfo("Success", "Rule saved successfully!")
+            self.destroy()
+        else:
+            messagebox.showerror("Error", "Failed to save rule. Please check your input.")
+
 class LibrarianApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Study Librarian")
-        self.geometry("1000x700")  # Made window a bit wider
+        self.geometry("1200x800")  # Made window wider for the new layout
 
         self.db = DatabaseAccess(**DB_PARAMS)
         self.selected_doc_id = None
@@ -22,10 +100,10 @@ class LibrarianApp(tk.Tk):
         self.build_left_panel(left_frame)
         self.main_paned.add(left_frame, weight=2)
 
-        # --- Right Panel: Document Details and Tags ---
+        # --- Right Panel: Document Details, Tags, and Rules ---
         right_frame = ttk.Frame(self.main_paned)
         self.build_right_panel(right_frame)
-        self.main_paned.add(right_frame, weight=1)
+        self.main_paned.add(right_frame, weight=2)
 
         # Initial load of data
         self.populate_docs_tree()
@@ -50,21 +128,40 @@ class LibrarianApp(tk.Tk):
         ttk.Button(button_frame, text="Refresh List", command=self.populate_docs_tree).pack(side=tk.LEFT, padx=5)
 
     def build_right_panel(self, parent):
+        # --- Tags Section ---
         tags_frame = ttk.LabelFrame(parent, text="Tags for Selected Document")
-        tags_frame.pack(fill=tk.BOTH, expand=True)
+        tags_frame.pack(fill=tk.X, pady=5)
 
-        self.tags_tree = ttk.Treeview(tags_frame, columns=("id"), show="headings", selectmode="browse")
+        self.tags_tree = ttk.Treeview(tags_frame, columns=("id"), show="headings", selectmode="browse", height=6)
         self.tags_tree.heading("id", text="ID")
         self.tags_tree.column("id", width=40, anchor='center')
         self.tags_tree.heading("#0", text="Tag Name")
         self.tags_tree.column("#0", width=150)
-        self.tags_tree.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
+        self.tags_tree.pack(fill=tk.X, side=tk.TOP)
+        self.tags_tree.bind("<<TreeviewSelect>>", self.on_tag_select)
 
-        button_frame = ttk.Frame(tags_frame)
-        button_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=5)
-        ttk.Button(button_frame, text="Assign Tag", command=self.assign_tag).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Remove Tag", command=self.remove_tag).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Create New Tag", command=self.create_new_tag).pack(side=tk.RIGHT, padx=5)
+        tags_button_frame = ttk.Frame(tags_frame)
+        tags_button_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=5)
+        ttk.Button(tags_button_frame, text="Assign Tag", command=self.assign_tag).pack(side=tk.LEFT, padx=5)
+        ttk.Button(tags_button_frame, text="Remove Tag", command=self.remove_tag).pack(side=tk.LEFT, padx=5)
+        ttk.Button(tags_button_frame, text="Create New Tag", command=self.create_new_tag).pack(side=tk.RIGHT, padx=5)
+
+        # --- Rules Section ---
+        rules_frame = ttk.LabelFrame(parent, text="Rules for Selected Tag")
+        rules_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        self.rules_tree = ttk.Treeview(rules_frame, columns=("id"), show="headings", selectmode="browse")
+        self.rules_tree.heading("id", text="ID")
+        self.rules_tree.column("id", width=40, anchor='center')
+        self.rules_tree.heading("#0", text="Rule Description")
+        self.rules_tree.column("#0", width=300)
+        self.rules_tree.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
+
+        rules_btn_frame = ttk.Frame(rules_frame)
+        rules_btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=5)
+        ttk.Button(rules_btn_frame, text="Add Rule", command=self.add_rule).pack(side=tk.LEFT, padx=5)
+        ttk.Button(rules_btn_frame, text="Edit Rule", command=self.edit_rule).pack(side=tk.LEFT, padx=5)
+        ttk.Button(rules_btn_frame, text="Delete Rule", command=self.delete_rule).pack(side=tk.LEFT, padx=5)
 
     def on_document_select(self, event):
         selection = self.docs_tree.selection()
@@ -74,6 +171,10 @@ class LibrarianApp(tk.Tk):
         doc_item = self.docs_tree.item(selection[0])
         self.selected_doc_id = doc_item['values'][0]
         self.populate_tags_tree()
+        
+        # Clear the rules tree since the tag selection is now invalid
+        for item in self.rules_tree.get_children():
+            self.rules_tree.delete(item)
 
     def populate_tags_tree(self):
         for item in self.tags_tree.get_children():
@@ -82,6 +183,22 @@ class LibrarianApp(tk.Tk):
             tags = self.db.get_tags_for_document(self.selected_doc_id)
             for tag_id, tag_name in tags:
                 self.tags_tree.insert("", tk.END, text=tag_name, values=(tag_id,))
+
+    def on_tag_select(self, event):
+        self.populate_rules_tree()
+
+    def populate_rules_tree(self):
+        for item in self.rules_tree.get_children():
+            self.rules_tree.delete(item)
+        
+        selection = self.tags_tree.selection()
+        if not selection: 
+            return
+        
+        tag_id = self.tags_tree.item(selection[0])['values'][0]
+        rules = self.db.get_rules_for_tag(tag_id)
+        for rule_id, desc in rules:
+            self.rules_tree.insert("", tk.END, text=desc, values=(rule_id,))
 
     def assign_tag(self):
         if not self.selected_doc_id:
@@ -150,6 +267,43 @@ class LibrarianApp(tk.Tk):
                 messagebox.showinfo("Success", f"Tag '{tag_name}' created.")
             else:
                 messagebox.showerror("Error", "Could not create tag. Does it already exist?")
+
+    def add_rule(self):
+        selection = self.tags_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a tag to add a rule to.")
+            return
+        tag_id = self.tags_tree.item(selection[0])['values'][0]
+        rule_data = {"tag_id": tag_id}  # New rule with its parent tag_id
+        RuleEditorWindow(self, self.db, rule_data, self.populate_rules_tree)
+
+    def edit_rule(self):
+        selection = self.rules_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a rule to edit.")
+            return
+        rule_id = self.rules_tree.item(selection[0])['values'][0]
+        rule_data = self.db.get_rule_details(rule_id)
+        if rule_data:
+            RuleEditorWindow(self, self.db, rule_data, self.populate_rules_tree)
+        else:
+            messagebox.showerror("Error", "Could not load rule details.")
+            
+    def delete_rule(self):
+        selection = self.rules_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a rule to delete.")
+            return
+        
+        rule_id = self.rules_tree.item(selection[0])['values'][0]
+        rule_desc = self.rules_tree.item(selection[0])['text']
+        
+        if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete the rule '{rule_desc}'?"):
+            if self.db.delete_rule(rule_id):
+                self.populate_rules_tree()
+                messagebox.showinfo("Success", "Rule deleted successfully.")
+            else:
+                messagebox.showerror("Error", "Failed to delete rule.")
 
     def populate_docs_tree(self):
         """Clears and re-populates the document list from the database."""

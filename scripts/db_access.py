@@ -339,3 +339,93 @@ class DatabaseAccess:
             print(f"Error removing tag from document: {e}")
             self.conn.rollback()
             return False
+
+    # Rule Management Methods
+    def get_rules_for_tag(self, tag_id):
+        """Retrieves all rules for a given tag_id."""
+        if not self.conn:
+            print("No database connection.")
+            return []
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, rule_description FROM study_tag_rules WHERE tag_id = %s ORDER BY id",
+                    (tag_id,)
+                )
+                return cur.fetchall()
+        except Exception as e:
+            print(f"Error getting rules for tag: {e}")
+            return []
+
+    def get_rule_details(self, rule_id):
+        """Retrieves the full details for a single rule."""
+        if not self.conn:
+            print("No database connection.")
+            return None
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT * FROM study_tag_rules WHERE id = %s", (rule_id,))
+                data = cur.fetchone()
+                if not data: 
+                    return None
+                # Assuming columns: id, tag_id, desc, pf, f, t, r, created_at
+                return {
+                    "id": data[0], 
+                    "tag_id": data[1], 
+                    "rule_description": data[2],
+                    "pf_pattern": data[3] if data[3] else "", 
+                    "flop_pattern": data[4] if data[4] else "",
+                    "turn_pattern": data[5] if data[5] else "", 
+                    "river_pattern": data[6] if data[6] else ""
+                }
+        except Exception as e:
+            print(f"Error getting rule details: {e}")
+            return None
+
+    def save_rule(self, rule_data):
+        """Saves a rule to the database. Updates if ID exists, otherwise inserts."""
+        if not self.conn:
+            print("No database connection.")
+            return False
+        
+        try:
+            with self.conn.cursor() as cur:
+                rule_id = rule_data.get("id")
+                if rule_id:  # Update existing rule
+                    cur.execute("""
+                        UPDATE study_tag_rules SET rule_description=%s, pf_action_seq_pattern=%s,
+                        flop_action_seq_pattern=%s, turn_action_seq_pattern=%s, river_action_seq_pattern=%s
+                        WHERE id=%s
+                    """, (rule_data['rule_description'], rule_data['pf_pattern'], rule_data['flop_pattern'],
+                          rule_data['turn_pattern'], rule_data['river_pattern'], rule_id))
+                else:  # Insert new rule
+                    cur.execute("""
+                        INSERT INTO study_tag_rules (tag_id, rule_description, pf_action_seq_pattern,
+                        flop_action_seq_pattern, turn_action_seq_pattern, river_action_seq_pattern)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """, (rule_data['tag_id'], rule_data['rule_description'], rule_data['pf_pattern'],
+                          rule_data['flop_pattern'], rule_data['turn_pattern'], rule_data['river_pattern']))
+                self.conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error saving rule: {e}")
+            self.conn.rollback()
+            return False
+
+    def delete_rule(self, rule_id):
+        """Deletes a rule from the database."""
+        if not self.conn:
+            print("No database connection.")
+            return False
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("DELETE FROM study_tag_rules WHERE id = %s", (rule_id,))
+                self.conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error deleting rule: {e}")
+            self.conn.rollback()
+            return False
