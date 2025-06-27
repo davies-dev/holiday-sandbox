@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from db_access import DatabaseAccess
+from scripts.db_access import DatabaseAccess
 from query_builder import QueryBuilder, Condition, SortCriterion
 from saved_state_manager import SavedStateManager
 from typing import List
@@ -26,7 +26,7 @@ import webbrowser
 import pathlib
 import urllib.parse
 from datetime import datetime
-from config import DB_PARAMS, GTO_BASE_PATH
+from scripts.config import DB_PARAMS, GTO_BASE_PATH
 #from betting_op import BettingOppurtunity
 #from betting_op import * 
 #------------------------------

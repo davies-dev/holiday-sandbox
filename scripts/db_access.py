@@ -235,3 +235,24 @@ class DatabaseAccess:
             print(f"Error deleting note: {e}")
             self.conn.rollback()
             return False
+
+    def get_all_study_documents(self):
+        """Retrieves all study documents from the library."""
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT id, title, file_path FROM study_documents ORDER BY title")
+            return cur.fetchall()
+
+    def add_study_document(self, title, file_path, source_info=''):
+        """Adds a new study document to the library."""
+        with self.conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "INSERT INTO study_documents (title, file_path, source_info) VALUES (%s, %s, %s)",
+                    (title, file_path, source_info)
+                )
+                self.conn.commit()
+                return True
+            except Exception as e:
+                self.conn.rollback()
+                print(f"Error adding study document: {e}")
+                return False
