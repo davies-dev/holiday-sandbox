@@ -132,11 +132,11 @@ class LibrarianApp(tk.Tk):
         tags_frame = ttk.LabelFrame(parent, text="Tags for Selected Document")
         tags_frame.pack(fill=tk.X, pady=5)
 
-        self.tags_tree = ttk.Treeview(tags_frame, columns=("id"), show="headings", selectmode="browse", height=6)
+        self.tags_tree = ttk.Treeview(tags_frame, columns=("id", "name"), show="headings", selectmode="browse", height=6)
         self.tags_tree.heading("id", text="ID")
         self.tags_tree.column("id", width=40, anchor='center')
-        self.tags_tree.heading("#0", text="Tag Name")
-        self.tags_tree.column("#0", width=150)
+        self.tags_tree.heading("name", text="Tag Name")
+        self.tags_tree.column("name", width=150)
         self.tags_tree.pack(fill=tk.X, side=tk.TOP)
         self.tags_tree.bind("<<TreeviewSelect>>", self.on_tag_select)
 
@@ -150,11 +150,11 @@ class LibrarianApp(tk.Tk):
         rules_frame = ttk.LabelFrame(parent, text="Rules for Selected Tag")
         rules_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        self.rules_tree = ttk.Treeview(rules_frame, columns=("id"), show="headings", selectmode="browse")
+        self.rules_tree = ttk.Treeview(rules_frame, columns=("id", "description"), show="headings", selectmode="browse")
         self.rules_tree.heading("id", text="ID")
         self.rules_tree.column("id", width=40, anchor='center')
-        self.rules_tree.heading("#0", text="Rule Description")
-        self.rules_tree.column("#0", width=300)
+        self.rules_tree.heading("description", text="Rule Description")
+        self.rules_tree.column("description", width=300)
         self.rules_tree.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
 
         rules_btn_frame = ttk.Frame(rules_frame)
@@ -182,7 +182,7 @@ class LibrarianApp(tk.Tk):
         if self.selected_doc_id:
             tags = self.db.get_tags_for_document(self.selected_doc_id)
             for tag_id, tag_name in tags:
-                self.tags_tree.insert("", tk.END, text=tag_name, values=(tag_id,))
+                self.tags_tree.insert("", tk.END, values=(tag_id, tag_name))
 
     def on_tag_select(self, event):
         self.populate_rules_tree()
@@ -198,7 +198,7 @@ class LibrarianApp(tk.Tk):
         tag_id = self.tags_tree.item(selection[0])['values'][0]
         rules = self.db.get_rules_for_tag(tag_id)
         for rule_id, desc in rules:
-            self.rules_tree.insert("", tk.END, text=desc, values=(rule_id,))
+            self.rules_tree.insert("", tk.END, values=(rule_id, desc))
 
     def assign_tag(self):
         if not self.selected_doc_id:
@@ -251,7 +251,7 @@ class LibrarianApp(tk.Tk):
             return
         
         tag_id = self.tags_tree.item(selection[0])['values'][0]
-        tag_name = self.tags_tree.item(selection[0])['text']
+        tag_name = self.tags_tree.item(selection[0])['values'][1]
         
         if messagebox.askyesno("Confirm Removal", f"Are you sure you want to remove the tag '{tag_name}' from this document?"):
             if self.db.remove_tag_from_document(self.selected_doc_id, tag_id):
@@ -296,7 +296,7 @@ class LibrarianApp(tk.Tk):
             return
         
         rule_id = self.rules_tree.item(selection[0])['values'][0]
-        rule_desc = self.rules_tree.item(selection[0])['text']
+        rule_desc = self.rules_tree.item(selection[0])['values'][1]
         
         if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete the rule '{rule_desc}'?"):
             if self.db.delete_rule(rule_id):
