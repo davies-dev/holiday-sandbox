@@ -50,6 +50,20 @@ class ReviewPanel(ttk.Frame):
         # The exact name of your vault as it appears in the Obsidian app
         self.OBSIDIAN_VAULT_NAME = "hh_explorer"
         # --- Widgets ---
+        # --- Relevant Study Notes ---
+        study_frame = ttk.LabelFrame(self, text="Relevant Study Notes")
+        study_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.study_notes_tree = ttk.Treeview(study_frame, columns=("id", "title", "path"), show="headings")
+        self.study_notes_tree.heading("id", text="ID")
+        self.study_notes_tree.column("id", width=40, anchor='center')
+        self.study_notes_tree.heading("title", text="Title")
+        self.study_notes_tree.column("title", width=150)
+        self.study_notes_tree.heading("path", text="File")
+        self.study_notes_tree.column("path", width=200)
+        self.study_notes_tree.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.study_notes_tree.bind("<Double-1>", self._open_study_note)
+
         note_frame = ttk.LabelFrame(self, text="Hand Notes")
         note_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
@@ -96,6 +110,14 @@ class ReviewPanel(ttk.Frame):
         review_data = self.db.get_or_create_review_data(hand_id)
         self.status_var.set(review_data.get('review_status', 'unreviewed'))
         self._refresh_notes_tree()
+
+        # --- NEW: Find and display relevant study notes ---
+        for item in self.study_notes_tree.get_children():
+            self.study_notes_tree.delete(item)
+            
+        relevant_docs = self.db.find_relevant_study_documents(hh_data)
+        for doc_id, title, file_path in relevant_docs:
+            self.study_notes_tree.insert("", tk.END, values=(doc_id, title, file_path))
 
     def _refresh_notes_tree(self):
         """Clears and re-populates the notes tree from the database."""
@@ -293,6 +315,30 @@ class ReviewPanel(ttk.Frame):
         else:
             search_paths_str = "\n".join([str(p) for p in search_paths])
             messagebox.showwarning("File Not Found", f"GTO+ file not found in any of these locations:\n\n{search_paths_str}")
+
+    def _open_study_note(self, event):
+        """Opens the selected study note in Obsidian."""
+        selection = self.study_notes_tree.selection()
+        if not selection: 
+            return
+        
+        item = self.study_notes_tree.item(selection[0])
+        file_path = item['values'][2]  # id, title, path -> path is the 3rd value
+
+        if not os.path.exists(file_path):
+            messagebox.showerror("Error", f"File not found: {file_path}")
+            return
+
+        try:
+            relative_path = os.path.relpath(file_path, self.OBSIDIAN_VAULT_PATH)
+            encoded_path = urllib.parse.quote(relative_path.replace(os.sep, '/'))
+            obsidian_uri = f"obsidian://open?vault={self.OBSIDIAN_VAULT_NAME}&file={encoded_path}"
+            
+            webbrowser.open(obsidian_uri)
+            print(f"Opened study note in Obsidian: {file_path}")
+        except Exception as e:
+            print(f"Error opening study note in Obsidian: {e}")
+            messagebox.showerror("Error", f"Could not open study note in Obsidian.\nError: {str(e)}")
 
 # ------------------------------
 # Main Application: QueryStateBrowser

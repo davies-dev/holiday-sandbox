@@ -1,5 +1,6 @@
 import psycopg2
 from psycopg2 import sql, OperationalError
+import re
 
 class DatabaseAccess:
     """
@@ -429,3 +430,80 @@ class DatabaseAccess:
             print(f"Error deleting rule: {e}")
             self.conn.rollback()
             return False
+
+    # Rule Matching Methods
+    def _check_rule_match(self, rule, hh_data):
+        """
+        Checks if a hand's data matches a single rule's patterns.
+        A blank/None pattern is considered a wildcard (always matches).
+        """
+        # rule is a dictionary like the one from get_rule_details
+        patterns = {
+            "preflop": rule.get('pf_pattern'),
+            "flop": rule.get('flop_pattern'),
+            "turn": rule.get('turn_pattern'),
+            "river": rule.get('river_pattern')
+        }
+
+        for street, pattern in patterns.items():
+            if not pattern:  # If pattern is None or empty, it's a wildcard
+                continue
+
+            action_seq = hh_data.get_simple_action_sequence(street)
+            if not re.search(pattern, action_seq):
+                return False  # This rule does not match
+        
+        return True  # All patterns matched
+
+    def find_relevant_study_documents(self, hh_data):
+        """
+        Finds all study documents with tags whose rules match the given hand data.
+        """
+        if not self.conn:
+            print("No database connection.")
+            return []
+        
+        try:
+            # 1. Fetch all rules from the database
+            with self.conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, tag_id, rule_description, pf_action_seq_pattern, 
+                           flop_action_seq_pattern, turn_action_seq_pattern, river_action_seq_pattern 
+                    FROM study_tag_rules
+                """)
+                all_rules_raw = cur.fetchall()
+
+            all_rules = [{
+                "id": r[0], 
+                "tag_id": r[1], 
+                "rule_description": r[2], 
+                "pf_pattern": r[3], 
+                "flop_pattern": r[4], 
+                "turn_pattern": r[5], 
+                "river_pattern": r[6]
+            } for r in all_rules_raw]
+
+            # 2. Find all tags where at least one rule matches
+            matching_tag_ids = set()
+            for rule in all_rules:
+                if self._check_rule_match(rule, hh_data):
+                    matching_tag_ids.add(rule['tag_id'])
+
+            if not matching_tag_ids:
+                return []
+
+            # 3. Find all documents associated with the matching tags
+            with self.conn.cursor() as cur:
+                # The %s in an IN clause requires a tuple
+                tags_tuple = tuple(matching_tag_ids)
+                cur.execute("""
+                    SELECT DISTINCT d.id, d.title, d.file_path
+                    FROM study_documents d
+                    JOIN study_document_tags sdt ON d.id = sdt.document_id
+                    WHERE sdt.tag_id IN %s
+                """, (tags_tuple,))
+                return cur.fetchall()
+                
+        except Exception as e:
+            print(f"Error finding relevant study documents: {e}")
+            return []
