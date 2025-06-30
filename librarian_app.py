@@ -8,7 +8,7 @@ class RuleEditorWindow(tk.Toplevel):
     def __init__(self, parent, db, rule_data, callback):
         super().__init__(parent)
         self.title("Rule Editor")
-        self.geometry("600x450")  # Made window taller for the new field
+        self.geometry("600x520")  # Made window taller for the new fields
         self.db = db
         self.rule_data = rule_data  # This is a dictionary
         self.callback = callback  # Function to call when saved
@@ -23,6 +23,8 @@ class RuleEditorWindow(tk.Toplevel):
         self.turn_var = tk.StringVar(value=self.rule_data.get('turn_pattern', ''))
         self.river_var = tk.StringVar(value=self.rule_data.get('river_pattern', ''))
         self.board_var = tk.StringVar(value=self.rule_data.get('board_texture', ''))
+        self.min_stack_var = tk.StringVar(value=str(self.rule_data.get('min_stack_bb', '') or ''))
+        self.max_stack_var = tk.StringVar(value=str(self.rule_data.get('max_stack_bb', '') or ''))
 
         # Create main frame with padding
         main_frame = ttk.Frame(self, padding="10")
@@ -35,7 +37,9 @@ class RuleEditorWindow(tk.Toplevel):
             ("Flop Pattern", self.flop_var, "Regex pattern for flop action sequence"),
             ("Turn Pattern", self.turn_var, "Regex pattern for turn action sequence"),
             ("River Pattern", self.river_var, "Regex pattern for river action sequence"),
-            ("Board Texture", self.board_var, "Comma-separated board textures (e.g., 'paired,A-high,monotone')")
+            ("Board Texture", self.board_var, "Comma-separated board textures (e.g., 'paired,A-high,monotone')"),
+            ("Min Stack (bb)", self.min_stack_var, "Minimum effective stack in big blinds (optional)"),
+            ("Max Stack (bb)", self.max_stack_var, "Maximum effective stack in big blinds (optional)")
         ]
         
         for i, (text, var, help_text) in enumerate(fields):
@@ -77,7 +81,15 @@ class RuleEditorWindow(tk.Toplevel):
         self.rule_data['turn_pattern'] = self.turn_var.get()
         self.rule_data['river_pattern'] = self.river_var.get()
         self.rule_data['board_texture'] = self.board_var.get()
-        
+        # Validate and save stack depth fields
+        try:
+            min_val = self.min_stack_var.get().strip()
+            max_val = self.max_stack_var.get().strip()
+            self.rule_data['min_stack_bb'] = int(min_val) if min_val else None
+            self.rule_data['max_stack_bb'] = int(max_val) if max_val else None
+        except ValueError:
+            messagebox.showerror("Validation Error", "Stack depth must be a valid number.")
+            return
         if self.db.save_rule(self.rule_data):
             self.callback()  # Refresh the list in the main window
             messagebox.showinfo("Success", "Rule saved successfully!")

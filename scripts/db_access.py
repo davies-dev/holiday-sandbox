@@ -377,7 +377,7 @@ class DatabaseAccess:
                 data = cur.fetchone()
                 if not data: 
                     return None
-                # Columns: id, tag_id, desc, pf, f, t, r, created_at, board_texture
+                # Columns: id, tag_id, desc, pf, f, t, r, created_at, board_texture, min_stack, max_stack
                 return {
                     "id": data[0], 
                     "tag_id": data[1], 
@@ -386,7 +386,9 @@ class DatabaseAccess:
                     "flop_pattern": data[4] if data[4] else "",
                     "turn_pattern": data[5] if data[5] else "", 
                     "river_pattern": data[6] if data[6] else "",
-                    "board_texture": data[8] if data[8] else ""  # board_texture_pattern column (index 8)
+                    "board_texture": data[8] if data[8] else "",
+                    "min_stack_bb": data[9],
+                    "max_stack_bb": data[10]
                 }
         except Exception as e:
             print(f"Error getting rule details: {e}")
@@ -405,17 +407,21 @@ class DatabaseAccess:
                     cur.execute("""
                         UPDATE study_tag_rules SET rule_description=%s, pf_action_seq_pattern=%s,
                         flop_action_seq_pattern=%s, turn_action_seq_pattern=%s, river_action_seq_pattern=%s,
-                        board_texture_pattern=%s WHERE id=%s
-                    """, (rule_data['rule_description'], rule_data['pf_pattern'], rule_data['flop_pattern'],
-                          rule_data['turn_pattern'], rule_data['river_pattern'], rule_data.get('board_texture', ''), rule_id))
+                        board_texture_pattern=%s, min_effective_stack_bb=%s, max_effective_stack_bb=%s WHERE id=%s
+                    """, (
+                        rule_data['rule_description'], rule_data['pf_pattern'], rule_data['flop_pattern'],
+                        rule_data['turn_pattern'], rule_data['river_pattern'], rule_data.get('board_texture', ''),
+                        rule_data.get('min_stack_bb'), rule_data.get('max_stack_bb'), rule_id))
                 else:  # Insert new rule
                     cur.execute("""
                         INSERT INTO study_tag_rules (tag_id, rule_description, pf_action_seq_pattern,
-                        flop_action_seq_pattern, turn_action_seq_pattern, river_action_seq_pattern, board_texture_pattern)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """, (rule_data['tag_id'], rule_data['rule_description'], rule_data['pf_pattern'],
-                          rule_data['flop_pattern'], rule_data['turn_pattern'], rule_data['river_pattern'], 
-                          rule_data.get('board_texture', '')))
+                        flop_action_seq_pattern, turn_action_seq_pattern, river_action_seq_pattern, board_texture_pattern,
+                        min_effective_stack_bb, max_effective_stack_bb)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        rule_data['tag_id'], rule_data['rule_description'], rule_data['pf_pattern'],
+                        rule_data['flop_pattern'], rule_data['turn_pattern'], rule_data['river_pattern'], 
+                        rule_data.get('board_texture', ''), rule_data.get('min_stack_bb'), rule_data.get('max_stack_bb')))
                 self.conn.commit()
                 return True
         except Exception as e:
@@ -442,7 +448,7 @@ class DatabaseAccess:
     # Rule Matching Methods
     def _check_rule_match(self, rule, hh_data):
         """
-        Checks if a hand's data matches a single rule's patterns, now including board texture.
+        Checks if a hand's data matches a single rule's patterns, now including board texture and stack depth.
         """
         # --- Action Sequence Matching (existing logic) ---
         patterns = {
@@ -459,35 +465,47 @@ class DatabaseAccess:
             if not re.search(pattern, action_seq):
                 return False  # This rule does not match
 
-        # --- NEW: Board Texture Matching ---
+        # --- Board Texture Matching ---
         texture_pattern = rule.get('board_texture')
         if texture_pattern:
-            # Try to get flop cards from the hand history data
             flop_cards = []
-            
-            # First, try to get flop_cards attribute directly
             if hasattr(hh_data, 'flop_cards') and hh_data.flop_cards:
                 flop_cards = hh_data.flop_cards
-            # If that doesn't work, try to extract from raw text
             elif hasattr(hh_data, 'raw_text') and hh_data.raw_text:
-                # Extract flop cards from the raw hand history text
                 flop_match = re.search(r'\*\*\* FLOP \*\*\* \[([^\]]+)\]', hh_data.raw_text)
                 if flop_match:
                     flop_text = flop_match.group(1)
-                    # Split the flop text into individual cards
                     flop_cards = [card.strip() for card in flop_text.split()]
-            
             if not flop_cards:
-                return False  # Rule requires a texture, but hand didn't reach flop or we can't extract cards
-
+                return False
             board_textures = analyze_board(flop_cards)
-            # The pattern can be a comma-separated list of required textures, e.g., "paired,A-high"
             required_textures = {t.strip() for t in texture_pattern.split(',')}
-            
             if not required_textures.issubset(board_textures):
-                return False  # The board doesn't have all required textures
-        
-        return True  # All patterns and textures matched
+                return False
+
+        # --- Stack Depth Matching ---
+        min_stack = rule.get('min_stack_bb')
+        max_stack = rule.get('max_stack_bb')
+        if min_stack is not None or max_stack is not None:
+            effective_stack = getattr(hh_data, 'effective_stack_bb', None)
+            
+            # Debug logging
+            if effective_stack is not None:
+                print(f"DEBUG: Hand effective_stack_bb = {effective_stack}")
+            else:
+                print(f"DEBUG: Hand effective_stack_bb is None")
+            
+            if effective_stack is None:
+                return False  # Cannot match a stack rule if hand data is missing
+            
+            if min_stack is not None and effective_stack < min_stack:
+                print(f"DEBUG: Stack too small: {effective_stack} < {min_stack}")
+                return False
+            if max_stack is not None and effective_stack > max_stack:
+                print(f"DEBUG: Stack too large: {effective_stack} > {max_stack}")
+                return False
+
+        return True  # All patterns, textures, and stack depths matched
 
     def find_relevant_study_documents(self, hh_data):
         """
@@ -503,7 +521,7 @@ class DatabaseAccess:
                 cur.execute("""
                     SELECT id, tag_id, rule_description, pf_action_seq_pattern, 
                            flop_action_seq_pattern, turn_action_seq_pattern, river_action_seq_pattern,
-                           board_texture_pattern
+                           board_texture_pattern, min_effective_stack_bb, max_effective_stack_bb
                     FROM study_tag_rules
                 """)
                 all_rules_raw = cur.fetchall()
@@ -516,12 +534,18 @@ class DatabaseAccess:
                 "flop_pattern": r[4], 
                 "turn_pattern": r[5], 
                 "river_pattern": r[6],
-                "board_texture": r[7]  # board_texture_pattern column (index 7 in SELECT query)
+                "board_texture": r[7],  # board_texture_pattern column (index 7 in SELECT query)
+                "min_stack_bb": r[8],   # min_effective_stack_bb
+                "max_stack_bb": r[9],   # max_effective_stack_bb
             } for r in all_rules_raw]
 
             # 2. Find all tags where at least one rule matches
             matching_tag_ids = set()
             for rule in all_rules:
+                # Debug: Print rule dict for Rule 9 and any rule with stack constraints
+                if rule["id"] == 9 or rule["min_stack_bb"] is not None or rule["max_stack_bb"] is not None:
+                    print(f"DEBUG: Checking rule {rule['id']} - min_stack_bb: {rule['min_stack_bb']}, max_stack_bb: {rule['max_stack_bb']}")
+                    print(f"DEBUG: Rule dict: {rule}")
                 if self._check_rule_match(rule, hh_data):
                     matching_tag_ids.add(rule['tag_id'])
 
@@ -539,7 +563,6 @@ class DatabaseAccess:
                     WHERE sdt.tag_id IN %s
                 """, (tags_tuple,))
                 return cur.fetchall()
-                
         except Exception as e:
             print(f"Error finding relevant study documents: {e}")
             return []
