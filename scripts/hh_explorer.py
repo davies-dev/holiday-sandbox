@@ -1229,6 +1229,7 @@ class HandHistoryExplorer(tk.Tk):
             parser = get_hand_history_parser(row[6])
             hh_data = parser.parse(row[6])
             hh_data.hand_id = row[0]  # Set the hand ID
+            hh_data.raw_text = row[6]  # Add raw text for board texture matching
             hh_data.compute_betting_opportunities()  # Compute betting opportunities
             self.current_hand["hand_history_data"] = hh_data
             

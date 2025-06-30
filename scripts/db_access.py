@@ -1,6 +1,12 @@
 import psycopg2
 from psycopg2 import sql, OperationalError
 import re
+import sys
+import os
+
+# Add parent directory to path to import board_analyzer
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from board_analyzer import analyze_board
 
 class DatabaseAccess:
     """
@@ -371,7 +377,7 @@ class DatabaseAccess:
                 data = cur.fetchone()
                 if not data: 
                     return None
-                # Assuming columns: id, tag_id, desc, pf, f, t, r, created_at
+                # Columns: id, tag_id, desc, pf, f, t, r, created_at, board_texture
                 return {
                     "id": data[0], 
                     "tag_id": data[1], 
@@ -379,7 +385,8 @@ class DatabaseAccess:
                     "pf_pattern": data[3] if data[3] else "", 
                     "flop_pattern": data[4] if data[4] else "",
                     "turn_pattern": data[5] if data[5] else "", 
-                    "river_pattern": data[6] if data[6] else ""
+                    "river_pattern": data[6] if data[6] else "",
+                    "board_texture": data[8] if data[8] else ""  # board_texture_pattern column (index 8)
                 }
         except Exception as e:
             print(f"Error getting rule details: {e}")
@@ -397,17 +404,18 @@ class DatabaseAccess:
                 if rule_id:  # Update existing rule
                     cur.execute("""
                         UPDATE study_tag_rules SET rule_description=%s, pf_action_seq_pattern=%s,
-                        flop_action_seq_pattern=%s, turn_action_seq_pattern=%s, river_action_seq_pattern=%s
-                        WHERE id=%s
+                        flop_action_seq_pattern=%s, turn_action_seq_pattern=%s, river_action_seq_pattern=%s,
+                        board_texture_pattern=%s WHERE id=%s
                     """, (rule_data['rule_description'], rule_data['pf_pattern'], rule_data['flop_pattern'],
-                          rule_data['turn_pattern'], rule_data['river_pattern'], rule_id))
+                          rule_data['turn_pattern'], rule_data['river_pattern'], rule_data.get('board_texture', ''), rule_id))
                 else:  # Insert new rule
                     cur.execute("""
                         INSERT INTO study_tag_rules (tag_id, rule_description, pf_action_seq_pattern,
-                        flop_action_seq_pattern, turn_action_seq_pattern, river_action_seq_pattern)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        flop_action_seq_pattern, turn_action_seq_pattern, river_action_seq_pattern, board_texture_pattern)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """, (rule_data['tag_id'], rule_data['rule_description'], rule_data['pf_pattern'],
-                          rule_data['flop_pattern'], rule_data['turn_pattern'], rule_data['river_pattern']))
+                          rule_data['flop_pattern'], rule_data['turn_pattern'], rule_data['river_pattern'], 
+                          rule_data.get('board_texture', '')))
                 self.conn.commit()
                 return True
         except Exception as e:
@@ -434,17 +442,15 @@ class DatabaseAccess:
     # Rule Matching Methods
     def _check_rule_match(self, rule, hh_data):
         """
-        Checks if a hand's data matches a single rule's patterns.
-        A blank/None pattern is considered a wildcard (always matches).
+        Checks if a hand's data matches a single rule's patterns, now including board texture.
         """
-        # rule is a dictionary like the one from get_rule_details
+        # --- Action Sequence Matching (existing logic) ---
         patterns = {
             "preflop": rule.get('pf_pattern'),
             "flop": rule.get('flop_pattern'),
             "turn": rule.get('turn_pattern'),
             "river": rule.get('river_pattern')
         }
-
         for street, pattern in patterns.items():
             if not pattern:  # If pattern is None or empty, it's a wildcard
                 continue
@@ -452,8 +458,36 @@ class DatabaseAccess:
             action_seq = hh_data.get_simple_action_sequence(street)
             if not re.search(pattern, action_seq):
                 return False  # This rule does not match
+
+        # --- NEW: Board Texture Matching ---
+        texture_pattern = rule.get('board_texture')
+        if texture_pattern:
+            # Try to get flop cards from the hand history data
+            flop_cards = []
+            
+            # First, try to get flop_cards attribute directly
+            if hasattr(hh_data, 'flop_cards') and hh_data.flop_cards:
+                flop_cards = hh_data.flop_cards
+            # If that doesn't work, try to extract from raw text
+            elif hasattr(hh_data, 'raw_text') and hh_data.raw_text:
+                # Extract flop cards from the raw hand history text
+                flop_match = re.search(r'\*\*\* FLOP \*\*\* \[([^\]]+)\]', hh_data.raw_text)
+                if flop_match:
+                    flop_text = flop_match.group(1)
+                    # Split the flop text into individual cards
+                    flop_cards = [card.strip() for card in flop_text.split()]
+            
+            if not flop_cards:
+                return False  # Rule requires a texture, but hand didn't reach flop or we can't extract cards
+
+            board_textures = analyze_board(flop_cards)
+            # The pattern can be a comma-separated list of required textures, e.g., "paired,A-high"
+            required_textures = {t.strip() for t in texture_pattern.split(',')}
+            
+            if not required_textures.issubset(board_textures):
+                return False  # The board doesn't have all required textures
         
-        return True  # All patterns matched
+        return True  # All patterns and textures matched
 
     def find_relevant_study_documents(self, hh_data):
         """
@@ -468,7 +502,8 @@ class DatabaseAccess:
             with self.conn.cursor() as cur:
                 cur.execute("""
                     SELECT id, tag_id, rule_description, pf_action_seq_pattern, 
-                           flop_action_seq_pattern, turn_action_seq_pattern, river_action_seq_pattern 
+                           flop_action_seq_pattern, turn_action_seq_pattern, river_action_seq_pattern,
+                           board_texture_pattern
                     FROM study_tag_rules
                 """)
                 all_rules_raw = cur.fetchall()
@@ -480,7 +515,8 @@ class DatabaseAccess:
                 "pf_pattern": r[3], 
                 "flop_pattern": r[4], 
                 "turn_pattern": r[5], 
-                "river_pattern": r[6]
+                "river_pattern": r[6],
+                "board_texture": r[7]  # board_texture_pattern column (index 7 in SELECT query)
             } for r in all_rules_raw]
 
             # 2. Find all tags where at least one rule matches
