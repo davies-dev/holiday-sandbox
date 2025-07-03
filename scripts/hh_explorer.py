@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 from db_access import DatabaseAccess
 from query_builder import QueryBuilder, Condition, SortCriterion
 from saved_state_manager import SavedStateManager
@@ -26,7 +26,9 @@ import webbrowser
 import pathlib
 import urllib.parse
 from datetime import datetime
-from config import DB_PARAMS, GTO_BASE_PATH
+from config import DB_PARAMS, GTO_BASE_PATH, GTO_EXECUTABLE_PATH
+from file_utils import find_gto_file_in_locations
+import subprocess
 #from betting_op import BettingOppurtunity
 #from betting_op import * 
 #------------------------------
@@ -43,12 +45,36 @@ class ReviewPanel(ttk.Frame):
         super().__init__(parent, *args, **kwargs)
         self.db = db_access
         self.current_hand_id = None
+        self.current_hh_data = None  # To store the full hand data object
+        self.current_spot = None     # To store the matched spot dictionary
+        self.current_doc_id = None   # To store the currently selected document id
 
-        # --- CONFIGURATION (IMPORTANT: Change these paths to your Obsidian vault) ---
-        # Path to the root of your Obsidian Vault
+        # --- CONFIGURATION (should be correct from before) ---
         self.OBSIDIAN_VAULT_PATH = "C:/projects/hh-explorer-vault/hh_explorer"
-        # The exact name of your vault as it appears in the Obsidian app
         self.OBSIDIAN_VAULT_NAME = "hh_explorer"
+
+        # --- NEW: Spot Info Frame ---
+        spot_frame = ttk.LabelFrame(self, text="Spot Information")
+        spot_frame.pack(fill=tk.X, padx=5, pady=5, side=tk.TOP)
+        
+        self.spot_name_var = tk.StringVar(value="No spot matched.")
+        spot_label = ttk.Label(spot_frame, textvariable=self.spot_name_var, font=("Segoe UI", 10, "bold"), wraplength=300)
+        spot_label.pack(pady=5, padx=5)
+
+        # --- Analysis Tools Frame ---
+        tools_frame = ttk.LabelFrame(self, text="Analysis Tools")
+        tools_frame.pack(fill=tk.X, padx=5, pady=5, side=tk.TOP)
+
+        self.open_default_btn = ttk.Button(tools_frame, text="Open Default Document", command=self.open_default_document, state=tk.DISABLED)
+        self.open_default_btn.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        self.define_spot_btn = ttk.Button(tools_frame, text="Define New Spot", command=self.define_new_spot, state=tk.DISABLED)
+        self.define_spot_btn.pack(side=tk.LEFT, padx=5, pady=5)
+
+        # --- NEW: Set Default Document Button ---
+        self.set_default_btn = ttk.Button(tools_frame, text="Set as Default Document", command=self.set_default_document, state=tk.DISABLED)
+        self.set_default_btn.pack(side=tk.LEFT, padx=5, pady=5)
+
         # --- Widgets ---
         # --- Relevant Study Notes ---
         study_frame = ttk.LabelFrame(self, text="Relevant Study Notes")
@@ -90,23 +116,39 @@ class ReviewPanel(ttk.Frame):
         save_status_btn = ttk.Button(status_frame, text="Save Status", command=self.save_review_status)
         save_status_btn.pack(side=tk.LEFT, padx=5, pady=5)
 
-        # --- Analysis Tools Widgets ---
-        tools_frame = ttk.LabelFrame(self, text="Analysis Tools")
-        tools_frame.pack(fill=tk.X, padx=5, pady=5)
-        self.gto_button = ttk.Button(tools_frame, text="Open GTO+", command=self.open_gto_file, state=tk.DISABLED)
-        self.gto_button.pack(side=tk.LEFT, padx=5, pady=5)
-        self.matching_state_name = ""
+        # --- Document List Frame ---
+        doc_frame = ttk.LabelFrame(self, text="Linked Documents")
+        doc_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.doc_list = ttk.Treeview(doc_frame, columns=("title", "file_path", "is_default"), show="headings", selectmode="browse", height=3)
+        self.doc_list.heading("title", text="Title")
+        self.doc_list.heading("file_path", text="File Path")
+        self.doc_list.heading("is_default", text="Default?")
+        self.doc_list.pack(fill=tk.X, padx=5, pady=5)
+        self.doc_list.bind("<<TreeviewSelect>>", self.on_doc_select)
 
-    def load_hand_data(self, hand_id, hh_data, game_type):
+    def load_hand_data(self, hand_id, hh_data):
         self.current_hand_id = hand_id
-        self.current_game_type = game_type
-        pf_sequence = hh_data.get_simple_action_sequence("preflop")
-        state_name = self.lookup_state_name_for_pf_sequence(pf_sequence, game_type)
-        self.matching_state_name = state_name
-        if state_name and state_name != "Unnamed" and not state_name.startswith("Error:"):
-            self.gto_button.config(state=tk.NORMAL, text=f"Open GTO+ ({state_name})")
+        self.current_hh_data = hh_data
+        
+        # Reset UI state
+        self.open_default_btn.config(state=tk.DISABLED)
+        self.define_spot_btn.config(state=tk.DISABLED)
+        self.spot_name_var.set("Finding spot...")
+        self.current_spot = None # Clear previous spot
+
+        # Find matching spot using the new DB method
+        matched_spot = self.db.find_spot_for_hand(hh_data)
+        
+        if matched_spot:
+            self.current_spot = matched_spot
+            self.spot_name_var.set(f"Spot: {matched_spot['spot_name']}\n{matched_spot['description']}")
+            self.open_default_btn.config(state=tk.NORMAL)
         else:
-            self.gto_button.config(state=tk.DISABLED, text="Open GTO+")
+            pf_seq = hh_data.get_simple_action_sequence('preflop')
+            self.spot_name_var.set(f"Unnamed Spot\n(Sequence: {pf_seq})")
+            self.define_spot_btn.config(state=tk.NORMAL)
+
+        # Load status and notes as before
         review_data = self.db.get_or_create_review_data(hand_id)
         self.status_var.set(review_data.get('review_status', 'unreviewed'))
         self._refresh_notes_tree()
@@ -118,6 +160,15 @@ class ReviewPanel(ttk.Frame):
         relevant_docs = self.db.find_relevant_study_documents(hh_data)
         for doc_id, title, file_path in relevant_docs:
             self.study_notes_tree.insert("", tk.END, values=(doc_id, title, file_path))
+
+        # Populate document list
+        self.doc_list.delete(*self.doc_list.get_children())
+        if self.current_spot:
+            docs = self.db.get_documents_for_spot(self.current_spot['id'])
+            for doc in docs:
+                self.doc_list.insert("", "end", iid=doc['id'], values=(doc['title'], doc['file_path'], "Yes" if doc['is_default'] else ""))
+        self.set_default_btn.config(state=tk.DISABLED)
+        self.current_doc_id = None
 
     def _refresh_notes_tree(self):
         """Clears and re-populates the notes tree from the database."""
@@ -275,46 +326,66 @@ class ReviewPanel(ttk.Frame):
             print(f"Error looking up state name for sequence {pf_sequence}: {e}")
             return f"Error: {e}"
 
-    def open_gto_file(self):
-        state_name = self.matching_state_name
-        game_type = self.current_game_type
-        gto_path = self.db.get_gto_file_path(state_name, game_type)
-        if not gto_path:
-            messagebox.showwarning("No Mapping", f"No GTO+ mapping found for state {state_name}")
+    def open_default_document(self):
+        if not self.current_spot:
+            messagebox.showerror("Error", "No spot is selected.")
             return
+
+        docs = self.db.get_documents_for_spot(self.current_spot['id'])
+        if not docs:
+            messagebox.showinfo("Info", "No documents are linked to this spot.")
+            return
+
+        # Find the default doc, or just take the first one if none is marked default
+        default_doc = next((doc for doc in docs if doc['is_default']), docs[0])
+        file_path_from_db = default_doc['file_path']
+
+        # Use the utility to find the actual file path
+        actual_path = find_gto_file_in_locations(file_path_from_db)
+
+        if not actual_path:
+            messagebox.showerror("Error", f"File not found. Searched multiple locations for:\n{os.path.basename(file_path_from_db)}")
+            return
+
+        # --- NEW: Check file type before opening ---
         from pathlib import Path
-        gto_path = Path(gto_path)
-        file_found = False
-        actual_path = None
-        search_paths = [gto_path]
-        from config import GTO_BASE_PATH
-        base_path = GTO_BASE_PATH
-        if base_path.exists():
-            processing_path = base_path / gto_path.name
-            search_paths.append(processing_path)
-            processing_path_prefixed = base_path / f"0 - {gto_path.name}"
-            search_paths.append(processing_path_prefixed)
-        processed_base = base_path / "processed"
-        if processed_base.exists():
-            processed_path = processed_base / gto_path.name
-            search_paths.append(processed_path)
-            processed_path_prefixed = processed_base / f"0 - {gto_path.name}"
-            search_paths.append(processed_path_prefixed)
-        for search_path in search_paths:
-            if search_path.exists():
-                file_found = True
-                actual_path = search_path
-                break
-        if file_found and actual_path:
-            try:
-                import webbrowser
-                webbrowser.open(str(actual_path))
-                print(f"Opened GTO+ file: {actual_path}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Could not open GTO+ file: {e}")
+        file_suffix = Path(actual_path).suffix.lower()
+
+        try:
+            if file_suffix in ['.gto', '.gto+']:
+                # Open with the system default application (no elevation required)
+                print(f"Opening GTO+ file: {actual_path}")
+                os.startfile(actual_path)
+            else:
+                # Assume it's a note for Obsidian
+                print(f"Opening Obsidian note: {actual_path}")
+                relative_path = os.path.relpath(actual_path, self.OBSIDIAN_VAULT_PATH)
+                encoded_path = urllib.parse.quote(relative_path.replace(os.sep, '/'))
+                obsidian_uri = f"obsidian://open?vault={self.OBSIDIAN_VAULT_NAME}&file={encoded_path}"
+                webbrowser.open(obsidian_uri)
+        except Exception as e:
+            messagebox.showerror("Error Opening File", f"Could not open the file.\n\nError: {e}")
+            print(f"Error opening file '{actual_path}': {e}")
+
+    def define_new_spot(self):
+        if not self.current_hh_data:
+            return
+        
+        spot_name = simpledialog.askstring("New Spot", "Enter a name for this new spot (e.g., MPT #43):")
+        if not spot_name:
+            return
+
+        description = simpledialog.askstring("Description", "Enter a brief description:")
+        source = simpledialog.askstring("Source", "Enter the source (e.g., Modern Poker Theory):")
+        
+        spot_id = self.db.create_spot(spot_name, description, source, self.current_hh_data)
+        
+        if spot_id:
+            messagebox.showinfo("Success", f"Spot '{spot_name}' created successfully!")
+            # Refresh the panel to show the new spot info
+            self.load_hand_data(self.current_hand_id, self.current_hh_data)
         else:
-            search_paths_str = "\n".join([str(p) for p in search_paths])
-            messagebox.showwarning("File Not Found", f"GTO+ file not found in any of these locations:\n\n{search_paths_str}")
+            messagebox.showerror("Error", "Failed to create spot. Does a spot for this exact action/format already exist?")
 
     def _open_study_note(self, event):
         """Opens the selected study note in Obsidian."""
@@ -340,6 +411,29 @@ class ReviewPanel(ttk.Frame):
             print(f"Error opening study note in Obsidian: {e}")
             messagebox.showerror("Error", f"Could not open study note in Obsidian.\nError: {str(e)}")
 
+    def on_doc_select(self, event):
+        selected = self.doc_list.selection()
+        if selected:
+            self.current_doc_id = int(selected[0])
+            self.set_default_btn.config(state=tk.NORMAL)
+        else:
+            self.current_doc_id = None
+            self.set_default_btn.config(state=tk.DISABLED)
+
+    def set_default_document(self):
+        if not self.current_spot or not self.current_doc_id:
+            return
+        with self.db.conn.cursor() as cur:
+            # Set this doc as default, others as not default
+            cur.execute(
+                "UPDATE spot_document_links SET is_default = (document_id = %s) WHERE spot_id = %s",
+                (self.current_doc_id, self.current_spot['id'])
+            )
+        self.db.conn.commit()
+        messagebox.showinfo("Success", "Default document updated.")
+        # Refresh the doc list to show the new default
+        self.load_hand_data(self.current_hand_id, self.current_hh_data)
+
 # ------------------------------
 # Main Application: QueryStateBrowser
 # ------------------------------
@@ -351,6 +445,7 @@ class HandHistoryExplorer(tk.Tk):
         
         # Create our database access instance.
         self.db = DatabaseAccess(**DB_PARAMS)
+        self.all_spots = self.db.get_spots_for_dropdowns()
         # Initialize our saved state manager.
         self.state_manager = SavedStateManager("saved_states.json")
         # Initialize query results and current index.
@@ -431,11 +526,11 @@ class HandHistoryExplorer(tk.Tk):
         self.pf_seq_label = ttk.Label(query_frame, text="Preflop Action Number:")
         self.pf_seq_label.grid(row=4, column=0, sticky=tk.E, padx=5, pady=5)
         # Dropdown setup (keep reference for dynamic update)
-        self.pf_actions = self.load_pf_actions()
-        pf_options = self.build_pf_options(self.pf_actions)
-        self.pf_seq_var = tk.StringVar(value=pf_options[0] if pf_options else "")
+        self.pf_actions = self.all_spots.get('preflop', {})
+        pf_options = sorted(self.pf_actions.keys(), key=lambda x: int(x) if x.isdigit() else 999)
+        self.pf_seq_var = tk.StringVar(value="Unnamed")
         self.pf_seq_combo = ttk.Combobox(query_frame, textvariable=self.pf_seq_var,
-                                         values=pf_options, state="readonly", width=20)
+                                         values=["Unnamed"] + pf_options, state="readonly", width=20)
         self.pf_seq_combo.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
         self.pf_seq_combo.bind("<<ComboboxSelected>>", self.on_pf_selection)
 
@@ -458,10 +553,11 @@ class HandHistoryExplorer(tk.Tk):
         self.pf_action_entry.grid(row=4, column=3, sticky=tk.W, padx=5, pady=5)
         
         ttk.Label(query_frame, text="Flop Pattern:").grid(row=5, column=0, sticky=tk.E, padx=5, pady=5)
+        postflop_patterns = self.all_spots.get('postflop', {})
+        postflop_options = ["None"] + sorted(postflop_patterns.keys())
         self.flop_pattern_var = tk.StringVar(value="None")
         self.flop_pattern_combo = ttk.Combobox(query_frame, textvariable=self.flop_pattern_var,
-                                               values=["None"] + sorted(self.load_postflop_patterns().keys()), 
-                                               state="readonly", width=20)
+                                               values=postflop_options, state="readonly", width=20)
         self.flop_pattern_combo.grid(row=5, column=1, sticky=tk.W, padx=5, pady=5)
         self.flop_pattern_combo.bind("<<ComboboxSelected>>", self.on_flop_pattern_selection)
         ttk.Label(query_frame, text="Flop SQL Pattern:").grid(row=5, column=2, sticky=tk.E, padx=5, pady=5)
@@ -471,10 +567,11 @@ class HandHistoryExplorer(tk.Tk):
         self.flop_sql_pattern_entry.grid(row=5, column=3, sticky=tk.W, padx=5, pady=5)
         
         ttk.Label(query_frame, text="Turn Pattern:").grid(row=6, column=0, sticky=tk.E, padx=5, pady=5)
+        postflop_patterns = self.all_spots.get('postflop', {})
+        postflop_options = ["None"] + sorted(postflop_patterns.keys())
         self.turn_pattern_var = tk.StringVar(value="None")
         self.turn_pattern_combo = ttk.Combobox(query_frame, textvariable=self.turn_pattern_var,
-                                               values=["None"] + sorted(self.load_postflop_patterns().keys()), 
-                                               state="readonly", width=20)
+                                               values=postflop_options, state="readonly", width=20)
         self.turn_pattern_combo.grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
         self.turn_pattern_combo.bind("<<ComboboxSelected>>", self.on_turn_pattern_selection)
         ttk.Label(query_frame, text="Turn SQL Pattern:").grid(row=6, column=2, sticky=tk.E, padx=5, pady=5)
@@ -484,10 +581,11 @@ class HandHistoryExplorer(tk.Tk):
         self.turn_sql_pattern_entry.grid(row=6, column=3, sticky=tk.W, padx=5, pady=5)
         
         ttk.Label(query_frame, text="River Pattern:").grid(row=7, column=0, sticky=tk.E, padx=5, pady=5)
+        postflop_patterns = self.all_spots.get('postflop', {})
+        postflop_options = ["None"] + sorted(postflop_patterns.keys())
         self.river_pattern_var = tk.StringVar(value="None")
         self.river_pattern_combo = ttk.Combobox(query_frame, textvariable=self.river_pattern_var,
-                                               values=["None"] + sorted(self.load_postflop_patterns().keys()), 
-                                               state="readonly", width=20)
+                                                values=postflop_options, state="readonly", width=20)
         self.river_pattern_combo.grid(row=7, column=1, sticky=tk.W, padx=5, pady=5)
         self.river_pattern_combo.bind("<<ComboboxSelected>>", self.on_river_pattern_selection)
         ttk.Label(query_frame, text="River SQL Pattern:").grid(row=7, column=2, sticky=tk.E, padx=5, pady=5)
@@ -740,7 +838,7 @@ class HandHistoryExplorer(tk.Tk):
         if selected == "None":
             self.flop_sql_pattern_var.set("")
         else:
-            sql_pattern = self.load_postflop_patterns().get(selected, "")
+            sql_pattern = self.all_spots.get('postflop', {}).get(selected, "")
             self.flop_sql_pattern_var.set(sql_pattern)
     
     def on_turn_pattern_selection(self, event):
@@ -748,7 +846,7 @@ class HandHistoryExplorer(tk.Tk):
         if selected == "None":
             self.turn_sql_pattern_var.set("")
         else:
-            sql_pattern = self.load_postflop_patterns().get(selected, "")
+            sql_pattern = self.all_spots.get('postflop', {}).get(selected, "")
             self.turn_sql_pattern_var.set(sql_pattern)
     
     def on_river_pattern_selection(self, event):
@@ -756,7 +854,7 @@ class HandHistoryExplorer(tk.Tk):
         if selected == "None":
             self.river_sql_pattern_var.set("")
         else:
-            sql_pattern = self.load_postflop_patterns().get(selected, "")
+            sql_pattern = self.all_spots.get('postflop', {}).get(selected, "")
             self.river_sql_pattern_var.set(sql_pattern)
     
     def run_query(self):
@@ -1019,7 +1117,7 @@ class HandHistoryExplorer(tk.Tk):
                 
                 # --- Add this line to link the main app to the review panel ---
                 if self.current_hand:
-                    self.review_panel.load_hand_data(self.current_hand["hand_id"], hh_data, game_type)
+                    self.review_panel.load_hand_data(self.current_hand["hand_id"], hh_data)
             
             self.prev_button.config(state=tk.NORMAL if self.current_index > 0 else tk.DISABLED)
             self.next_button.config(state=tk.NORMAL if self.current_index < len(self.query_results)-1 else tk.DISABLED)

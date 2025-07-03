@@ -26,4 +26,7 @@ DB_PARAMS = {
 
 # GTO+ file processing configuration
 # Base path for GTO+ file processing and storage
-GTO_BASE_PATH = Path("C:\\@myfiles\\gtotorunwhenIleave\\") 
+GTO_BASE_PATH = Path("C:\\@myfiles\\gtotorunwhenIleave\\")
+
+# Path to the GTO+ executable
+GTO_EXECUTABLE_PATH = r"C:\\Program Files\\GTO\\GTO.exe" 

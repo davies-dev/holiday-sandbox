@@ -4,6 +4,7 @@ import re
 import sys
 import os
 import fnmatch
+import json
 
 # Add parent directory to path to import board_analyzer
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -651,3 +652,124 @@ class DatabaseAccess:
         except Exception as e:
             print(f"Error finding relevant study documents: {e}")
             return []
+
+    # --- New Spot System Methods ---
+    def find_spot_for_hand(self, hh_data):
+        """
+        Finds a defined spot that matches the given hand data.
+        Python-side rule matching: for each spot, all its rules must match the hand.
+        Currently only supports preflop action sequence, but easily extensible.
+        """
+        pf_seq = hh_data.get_simple_action_sequence("preflop")
+        # You can add more hand properties as needed
+
+        with self.conn.cursor() as cur:
+            # Get all spots and their rules
+            cur.execute("""
+                SELECT p.id, p.spot_name, p.description, r.condition_type, r.condition_params
+                FROM poker_spots p
+                JOIN spot_rules r ON p.id = r.spot_id
+                ORDER BY p.id
+            """)
+            rows = cur.fetchall()
+
+        # Group rules by spot
+        from collections import defaultdict
+        spot_rules = defaultdict(list)
+        spot_info = {}
+        for spot_id, spot_name, description, cond_type, cond_params in rows:
+            spot_rules[spot_id].append((cond_type, cond_params))
+            spot_info[spot_id] = {"spot_name": spot_name, "description": description, "id": spot_id}
+
+        # Try to match each spot
+        for spot_id, rules in spot_rules.items():
+            all_match = True
+            for cond_type, cond_params in rules:
+                if isinstance(cond_params, str):
+                    params = json.loads(cond_params)
+                else:
+                    params = cond_params
+                if cond_type == 'action_sequence':
+                    # Only preflop for now
+                    if params.get("street") == "preflop":
+                        if params.get("pattern") != pf_seq:
+                            all_match = False
+                            break
+                # Add more condition types as needed
+            if all_match:
+                return spot_info[spot_id]
+        return None
+
+    def get_documents_for_spot(self, spot_id):
+        """Retrieves all linked documents for a given spot_id."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT d.id, d.title, d.file_path, l.is_default
+                FROM study_documents d
+                JOIN spot_document_links l ON d.id = l.document_id
+                WHERE l.spot_id = %s
+                ORDER BY l.is_default DESC, d.title
+                """,
+                (spot_id,)
+            )
+            return [{"id": r[0], "title": r[1], "file_path": r[2], "is_default": r[3]} for r in cur.fetchall()]
+
+    def create_spot(self, spot_name, description, source, hh_data):
+        """Creates a new spot and its initial rule in the database."""
+        pf_seq = hh_data.get_simple_action_sequence("preflop")
+        try:
+            with self.conn.cursor() as cur:
+                # Insert the main spot definition
+                cur.execute(
+                    """
+                    INSERT INTO poker_spots (spot_name, description, source)
+                    VALUES (%s, %s, %s) RETURNING id
+                    """,
+                    (spot_name, description, source)
+                )
+                spot_id = cur.fetchone()[0]
+
+                # Insert the action_sequence rule
+                rule_params = json.dumps({"street": "preflop", "pattern": pf_seq})
+                cur.execute(
+                    "INSERT INTO spot_rules (spot_id, condition_type, condition_params) VALUES (%s, %s, %s)",
+                    (spot_id, 'action_sequence', rule_params)
+                )
+                self.conn.commit()
+                return spot_id
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error creating spot: {e}")
+            return None
+
+    def get_spots_for_dropdowns(self):
+        """
+        Fetches all spots that are defined by a single action_sequence rule,
+        categorized by street. This is perfect for populating the UI dropdowns.
+        """
+        spots_by_street = {"preflop": {}, "postflop": {}}
+        with self.conn.cursor() as cur:
+            # This query finds spots that have exactly ONE rule, and that rule
+            # is of type 'action_sequence'.
+            cur.execute("""
+                SELECT s.spot_name, r.condition_params->>'pattern' as sql_pattern, r.condition_params->>'street' as street
+                FROM poker_spots s
+                JOIN spot_rules r ON s.id = r.spot_id
+                WHERE r.id IN (
+                    SELECT rule_id FROM (
+                        SELECT spot_id, COUNT(*) as rule_count, MIN(id) as rule_id
+                        FROM spot_rules
+                        GROUP BY spot_id
+                        HAVING COUNT(*) = 1
+                    ) as single_rules
+                ) AND r.condition_type = 'action_sequence'
+            """)
+            for spot_name, pattern, street in cur.fetchall():
+                if street in spots_by_street:
+                    spots_by_street[street][spot_name] = pattern
+                # Since postflop patterns can apply to F, T, or R, we add them to a general key
+                elif street in ['flop', 'turn', 'river']:
+                     spots_by_street["postflop"][spot_name] = pattern
+
+        return spots_by_street
