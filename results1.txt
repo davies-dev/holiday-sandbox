@@ -1,0 +1,249 @@
+Testing get_format_details() method availability...
+=== Testing get_format_details() Method Availability ===
+
+DEBUG RAISE: Player cowpop3
+DEBUG RAISE: Street: preflop
+DEBUG RAISE: Bet level before raise: 0.02
+DEBUG RAISE: Raise amount: 0.03
+DEBUG RAISE: Their contribution on this street so far: 0.0
+DEBUG RAISE: Their total contribution so far: 0.0
+DEBUG RAISE: New contribution for this street: 0.05
+DEBUG RAISE: New total contribution: 0.05
+DEBUG RAISE: New bet level: 0.05
+
+DEBUG: Adding street change for flop
+DEBUG: Number of active players: 6
+
+DEBUG: Processing player cowpop3 (BN)
+DEBUG: Before reset - Street contribution: 0.05
+DEBUG: Resetting cowpop3 for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player phantomaup (SB)
+DEBUG: Before reset - Street contribution: 0.01
+DEBUG: Resetting phantomaup for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player HumptyD (BB)
+DEBUG: Before reset - Street contribution: 0.05
+DEBUG: Resetting HumptyD for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player Trollrian (UTG)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting Trollrian for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player CrushingLife (MP)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting CrushingLife for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player EatBatteries (CO)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting EatBatteries for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Adding street change for turn
+DEBUG: Number of active players: 6
+
+DEBUG: Processing player cowpop3 (BN)
+DEBUG: Before reset - Street contribution: 0.039999999999999994
+DEBUG: Resetting cowpop3 for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player phantomaup (SB)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting phantomaup for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player HumptyD (BB)
+DEBUG: Before reset - Street contribution: 0.039999999999999994
+DEBUG: Resetting HumptyD for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player Trollrian (UTG)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting Trollrian for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player CrushingLife (MP)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting CrushingLife for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player EatBatteries (CO)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting EatBatteries for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Adding street change for river
+DEBUG: Number of active players: 6
+
+DEBUG: Processing player cowpop3 (BN)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting cowpop3 for river
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player phantomaup (SB)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting phantomaup for river
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player HumptyD (BB)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting HumptyD for river
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player Trollrian (UTG)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting Trollrian for river
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player CrushingLife (MP)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting CrushingLife for river
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player EatBatteries (CO)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting EatBatteries for river
+DEBUG: After reset - Street contribution: 0.0
+✅ HandHistoryData object created successfully!
+Type: <class 'holiday_parser.models.hand_data.HandHistoryData'>
+✅ get_format_details() method is available!
+✅ get_format_details() executed successfully!
+Format details: {'game_class': 'cash', 'game_variant': 'zoom', 'table_size': '6-max'}
+✅ All expected keys present in format details
+
+Format Details Breakdown:
+  game_class: cash
+  game_variant: zoom
+  table_size: 6-max
+
+🎉 get_format_details() method is available and working!
+
+=== Testing Structured Format Matching ===
+
+DEBUG RAISE: Player cowpop3
+DEBUG RAISE: Street: preflop
+DEBUG RAISE: Bet level before raise: 0.02
+DEBUG RAISE: Raise amount: 0.03
+DEBUG RAISE: Their contribution on this street so far: 0.0
+DEBUG RAISE: Their total contribution so far: 0.0
+DEBUG RAISE: New contribution for this street: 0.05
+DEBUG RAISE: New total contribution: 0.05
+DEBUG RAISE: New bet level: 0.05
+
+DEBUG: Adding street change for flop
+DEBUG: Number of active players: 6
+
+DEBUG: Processing player cowpop3 (BN)
+DEBUG: Before reset - Street contribution: 0.05
+DEBUG: Resetting cowpop3 for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player phantomaup (SB)
+DEBUG: Before reset - Street contribution: 0.01
+DEBUG: Resetting phantomaup for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player HumptyD (BB)
+DEBUG: Before reset - Street contribution: 0.05
+DEBUG: Resetting HumptyD for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player Trollrian (UTG)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting Trollrian for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player CrushingLife (MP)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting CrushingLife for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player EatBatteries (CO)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting EatBatteries for flop
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Adding street change for turn
+DEBUG: Number of active players: 6
+
+DEBUG: Processing player cowpop3 (BN)
+DEBUG: Before reset - Street contribution: 0.039999999999999994
+DEBUG: Resetting cowpop3 for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player phantomaup (SB)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting phantomaup for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player HumptyD (BB)
+DEBUG: Before reset - Street contribution: 0.039999999999999994
+DEBUG: Resetting HumptyD for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player Trollrian (UTG)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting Trollrian for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player CrushingLife (MP)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting CrushingLife for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player EatBatteries (CO)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting EatBatteries for turn
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Adding street change for river
+DEBUG: Number of active players: 6
+
+DEBUG: Processing player cowpop3 (BN)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting cowpop3 for river
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player phantomaup (SB)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting phantomaup for river
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player HumptyD (BB)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting HumptyD for river
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player Trollrian (UTG)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting Trollrian for river
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player CrushingLife (MP)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting CrushingLife for river
+DEBUG: After reset - Street contribution: 0.0
+
+DEBUG: Processing player EatBatteries (CO)
+DEBUG: Before reset - Street contribution: 0.0
+DEBUG: Resetting EatBatteries for river
+DEBUG: After reset - Street contribution: 0.0
+Database connection established.
+Testing rule matching with structured formats...
+DEBUG: Game class matching - pattern: 'cash', hand game_class: 'cash'
+DEBUG: Game class pattern 'cash' matched hand game_class 'cash'
+DEBUG: Game variant matching - pattern: 'zoom', hand game_variant: 'zoom'
+DEBUG: Game variant pattern 'zoom' matched hand game_variant 'zoom'
+DEBUG: Table size matching - pattern: '6-max', hand table_size: '6-max'
+DEBUG: Table size pattern '6-max' matched hand table_size '6-max'
+Rule match result: ✅ MATCHED
+Database connection closed.
+
+🎉 Structured format matching is working correctly!
+
+Test completed.

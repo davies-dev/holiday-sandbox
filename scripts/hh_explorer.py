@@ -398,144 +398,166 @@ class HandHistoryExplorer(tk.Tk):
         
         ttk.Label(query_frame, text="PF Game Type:").grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
         self.pf_game_type_var = tk.StringVar(value="zoom_cash_6max")
-        game_types = ["zoom_cash_6max", "spingo", "husng spots"]
+        game_types = ["zoom_cash_6max", "spingo", "husng spots","tournament"]
         self.pf_game_type_combo = ttk.Combobox(query_frame, textvariable=self.pf_game_type_var,
                                                values=game_types, state="readonly", width=20)
         self.pf_game_type_combo.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
         self.pf_game_type_combo.bind("<<ComboboxSelected>>", lambda event: self.refresh_pf_actions())
         
-        ttk.Label(query_frame, text="Preflop Action Number:").grid(row=1, column=0, sticky=tk.E, padx=5, pady=5)
+        # --- Structured Format Dropdowns ---
+        ttk.Label(query_frame, text="Game Class:").grid(row=1, column=0, sticky=tk.E, padx=5, pady=5)
+        self.game_class_var = tk.StringVar(value="")
+        game_classes = ["", "cash", "tournament"]
+        self.game_class_combo = ttk.Combobox(query_frame, textvariable=self.game_class_var,
+                                             values=game_classes, state="readonly", width=20)
+        self.game_class_combo.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        ttk.Label(query_frame, text="Game Variant:").grid(row=2, column=0, sticky=tk.E, padx=5, pady=5)
+        self.game_variant_var = tk.StringVar(value="")
+        game_variants = ["", "zoom", "regular"]
+        self.game_variant_combo = ttk.Combobox(query_frame, textvariable=self.game_variant_var,
+                                               values=game_variants, state="readonly", width=20)
+        self.game_variant_combo.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        ttk.Label(query_frame, text="Table Size:").grid(row=3, column=0, sticky=tk.E, padx=5, pady=5)
+        self.table_size_var = tk.StringVar(value="")
+        table_sizes = ["", "2-max", "3-max", "6-max", "9-max"]
+        self.table_size_combo = ttk.Combobox(query_frame, textvariable=self.table_size_var,
+                                             values=table_sizes, state="readonly", width=20)
+        self.table_size_combo.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        ttk.Label(query_frame, text="Preflop Action Number:").grid(row=4, column=0, sticky=tk.E, padx=5, pady=5)
         # Store label reference for dynamic update
         self.pf_seq_label = ttk.Label(query_frame, text="Preflop Action Number:")
-        self.pf_seq_label.grid(row=1, column=0, sticky=tk.E, padx=5, pady=5)
+        self.pf_seq_label.grid(row=4, column=0, sticky=tk.E, padx=5, pady=5)
         # Dropdown setup (keep reference for dynamic update)
         self.pf_actions = self.load_pf_actions()
         pf_options = self.build_pf_options(self.pf_actions)
         self.pf_seq_var = tk.StringVar(value=pf_options[0] if pf_options else "")
         self.pf_seq_combo = ttk.Combobox(query_frame, textvariable=self.pf_seq_var,
                                          values=pf_options, state="readonly", width=20)
-        self.pf_seq_combo.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        self.pf_seq_combo.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
         self.pf_seq_combo.bind("<<ComboboxSelected>>", self.on_pf_selection)
 
         # Add a read-only entry for preflop SQL pattern (initially empty)
         self.pf_sql_pattern_var = tk.StringVar()
         self.pf_sql_pattern_entry = ttk.Entry(query_frame, textvariable=self.pf_sql_pattern_var, width=40, state="readonly")
-        self.pf_sql_pattern_entry.grid(row=1, column=3, sticky=tk.W, padx=5, pady=5)
+        self.pf_sql_pattern_entry.grid(row=4, column=3, sticky=tk.W, padx=5, pady=5)
         self.pf_sql_pattern_entry.grid_remove()  # Hide by default
 
         # Add pf Action no checkbox to the right of the SQL pattern entry
         self.pf_action_no_var = tk.BooleanVar(value=True)
         self.pf_action_no_checkbox = ttk.Checkbutton(query_frame, text="pf Action no", variable=self.pf_action_no_var, command=self.on_pf_action_no_toggle)
-        self.pf_action_no_checkbox.grid(row=1, column=4, sticky=tk.W, padx=5, pady=5)
+        self.pf_action_no_checkbox.grid(row=4, column=4, sticky=tk.W, padx=5, pady=5)
 
         # Action String label/entry (only shown when checkbox is checked)
         self.pf_action_str_label = ttk.Label(query_frame, text="Action String:")
-        self.pf_action_str_label.grid(row=1, column=2, sticky=tk.E, padx=5, pady=5)
+        self.pf_action_str_label.grid(row=4, column=2, sticky=tk.E, padx=5, pady=5)
         self.pf_action_str_var = tk.StringVar()
         self.pf_action_entry = ttk.Entry(query_frame, textvariable=self.pf_action_str_var, width=40)
-        self.pf_action_entry.grid(row=1, column=3, sticky=tk.W, padx=5, pady=5)
+        self.pf_action_entry.grid(row=4, column=3, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="Flop Pattern:").grid(row=2, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Flop Pattern:").grid(row=5, column=0, sticky=tk.E, padx=5, pady=5)
         self.flop_pattern_var = tk.StringVar(value="None")
         self.flop_pattern_combo = ttk.Combobox(query_frame, textvariable=self.flop_pattern_var,
                                                values=["None"] + sorted(self.load_postflop_patterns().keys()), 
                                                state="readonly", width=20)
-        self.flop_pattern_combo.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        self.flop_pattern_combo.grid(row=5, column=1, sticky=tk.W, padx=5, pady=5)
         self.flop_pattern_combo.bind("<<ComboboxSelected>>", self.on_flop_pattern_selection)
-        ttk.Label(query_frame, text="Flop SQL Pattern:").grid(row=2, column=2, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Flop SQL Pattern:").grid(row=5, column=2, sticky=tk.E, padx=5, pady=5)
         self.flop_sql_pattern_var = tk.StringVar()
         self.flop_sql_pattern_entry = ttk.Entry(query_frame, textvariable=self.flop_sql_pattern_var,
                                                 width=40, state="readonly")
-        self.flop_sql_pattern_entry.grid(row=2, column=3, sticky=tk.W, padx=5, pady=5)
+        self.flop_sql_pattern_entry.grid(row=5, column=3, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="Turn Pattern:").grid(row=3, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Turn Pattern:").grid(row=6, column=0, sticky=tk.E, padx=5, pady=5)
         self.turn_pattern_var = tk.StringVar(value="None")
         self.turn_pattern_combo = ttk.Combobox(query_frame, textvariable=self.turn_pattern_var,
                                                values=["None"] + sorted(self.load_postflop_patterns().keys()), 
                                                state="readonly", width=20)
-        self.turn_pattern_combo.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        self.turn_pattern_combo.grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
         self.turn_pattern_combo.bind("<<ComboboxSelected>>", self.on_turn_pattern_selection)
-        ttk.Label(query_frame, text="Turn SQL Pattern:").grid(row=3, column=2, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Turn SQL Pattern:").grid(row=6, column=2, sticky=tk.E, padx=5, pady=5)
         self.turn_sql_pattern_var = tk.StringVar()
         self.turn_sql_pattern_entry = ttk.Entry(query_frame, textvariable=self.turn_sql_pattern_var,
                                                 width=40, state="readonly")
-        self.turn_sql_pattern_entry.grid(row=3, column=3, sticky=tk.W, padx=5, pady=5)
+        self.turn_sql_pattern_entry.grid(row=6, column=3, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="River Pattern:").grid(row=4, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="River Pattern:").grid(row=7, column=0, sticky=tk.E, padx=5, pady=5)
         self.river_pattern_var = tk.StringVar(value="None")
         self.river_pattern_combo = ttk.Combobox(query_frame, textvariable=self.river_pattern_var,
                                                values=["None"] + sorted(self.load_postflop_patterns().keys()), 
                                                state="readonly", width=20)
-        self.river_pattern_combo.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
+        self.river_pattern_combo.grid(row=7, column=1, sticky=tk.W, padx=5, pady=5)
         self.river_pattern_combo.bind("<<ComboboxSelected>>", self.on_river_pattern_selection)
-        ttk.Label(query_frame, text="River SQL Pattern:").grid(row=4, column=2, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="River SQL Pattern:").grid(row=7, column=2, sticky=tk.E, padx=5, pady=5)
         self.river_sql_pattern_var = tk.StringVar()
         self.river_sql_pattern_entry = ttk.Entry(query_frame, textvariable=self.river_sql_pattern_var,
                                                 width=40, state="readonly")
-        self.river_sql_pattern_entry.grid(row=4, column=3, sticky=tk.W, padx=5, pady=5)
+        self.river_sql_pattern_entry.grid(row=7, column=3, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="Button Name:").grid(row=5, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Button Name:").grid(row=8, column=0, sticky=tk.E, padx=5, pady=5)
         self.button_name_var = tk.StringVar()
         self.button_entry = ttk.Entry(query_frame, textvariable=self.button_name_var, width=30)
-        self.button_entry.grid(row=5, column=1, sticky=tk.W, padx=5, pady=5)
+        self.button_entry.grid(row=8, column=1, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="Position:").grid(row=6, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Position:").grid(row=9, column=0, sticky=tk.E, padx=5, pady=5)
         self.position_var = tk.StringVar(value="None")
         positions_list = ["None", "BN", "SB", "BB", "UTG", "MP", "CO"]
         self.position_combo = ttk.Combobox(query_frame, textvariable=self.position_var,
                                            values=positions_list, state="readonly", width=20)
-        self.position_combo.grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
+        self.position_combo.grid(row=9, column=1, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="Player Name for Position:").grid(row=6, column=2, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Player Name for Position:").grid(row=9, column=2, sticky=tk.E, padx=5, pady=5)
         self.position_player_var = tk.StringVar()
         self.position_player_entry = ttk.Entry(query_frame, textvariable=self.position_player_var, width=30)
-        self.position_player_entry.grid(row=6, column=3, sticky=tk.W, padx=5, pady=5)
+        self.position_player_entry.grid(row=9, column=3, sticky=tk.W, padx=5, pady=5)
         
         # --- Time Period Checkbox and Entry ---
         self.time_period_var = tk.BooleanVar(value=True)  # Default to checked
         self.time_period_checkbox = ttk.Checkbutton(query_frame, text="Time Period (hours):", 
                                                    variable=self.time_period_var,
                                                    command=self.toggle_time_period)
-        self.time_period_checkbox.grid(row=7, column=0, sticky=tk.E, padx=5, pady=5)
+        self.time_period_checkbox.grid(row=10, column=0, sticky=tk.E, padx=5, pady=5)
 
         self.time_period_entry_var = tk.StringVar(value="24")  # Default to 24 hours
         self.time_period_entry = ttk.Entry(query_frame, textvariable=self.time_period_entry_var, width=10)
-        self.time_period_entry.grid(row=7, column=1, sticky=tk.W, padx=5, pady=5)
+        self.time_period_entry.grid(row=10, column=1, sticky=tk.W, padx=5, pady=5)
 
         # --- Player Flop Checkbox and Entry ---
         self.player_flop_var = tk.BooleanVar(value=False)  # Default to unchecked
         self.player_flop_checkbox = ttk.Checkbutton(query_frame, text="Player Saw Flop:", 
                                                    variable=self.player_flop_var,
                                                    command=self.toggle_player_flop)
-        self.player_flop_checkbox.grid(row=7, column=2, sticky=tk.E, padx=5, pady=5)
+        self.player_flop_checkbox.grid(row=10, column=2, sticky=tk.E, padx=5, pady=5)
 
-        self.player_flop_entry_var = tk.StringVar(value="HumptyD")  # Default to HumptyD
+        self.player_flop_entry_var = tk.StringVar(value="")  # Default to empty
         self.player_flop_entry = ttk.Entry(query_frame, textvariable=self.player_flop_entry_var, width=30)
-        self.player_flop_entry.grid(row=7, column=3, sticky=tk.W, padx=5, pady=5)
+        self.player_flop_entry.grid(row=10, column=3, sticky=tk.W, padx=5, pady=5)
         self.player_flop_entry.config(state=tk.DISABLED)  # Initially disabled
         
-        ttk.Label(query_frame, text="Review Status:").grid(row=8, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Review Status:").grid(row=11, column=0, sticky=tk.E, padx=5, pady=5)
         self.review_status_filter_var = tk.StringVar(value="All")
         status_filter_options = ["All", 'unreviewed', 'eyeballed', 'marked_for_review', 'waiting_on_gto', 'completed']
         self.review_status_filter_combo = ttk.Combobox(query_frame, textvariable=self.review_status_filter_var,
                                                        values=status_filter_options, state="readonly", width=20)
-        self.review_status_filter_combo.grid(row=8, column=1, sticky=tk.W, padx=5, pady=5)
+        self.review_status_filter_combo.grid(row=11, column=1, sticky=tk.W, padx=5, pady=5)
         # (You may need to renumber grid rows for widgets below this)
 
         self.query_button = ttk.Button(query_frame, text="Run Query", command=self.run_query)
-        self.query_button.grid(row=9, column=0, columnspan=2, pady=10, sticky=tk.W)
+        self.query_button.grid(row=12, column=0, columnspan=2, pady=10, sticky=tk.W)
         
         # Add Show Query button next to Run Query button
         self.show_query_button = ttk.Button(query_frame, text="Show Query", command=self.show_query)
-        self.show_query_button.grid(row=9, column=2, pady=10, sticky=tk.W)
+        self.show_query_button.grid(row=12, column=2, pady=10, sticky=tk.W)
         
         # Add after the query button
         refresh_btn = ttk.Button(query_frame, text="↻ Refresh Dropdowns", command=self.refresh_all_dropdowns)
-        refresh_btn.grid(row=9, column=3, pady=10, sticky=tk.E)
+        refresh_btn.grid(row=12, column=3, pady=10, sticky=tk.E)
         
         # --- New: State Name Display ---
         state_display_frame = ttk.LabelFrame(query_frame, text="Current Hand State")
-        state_display_frame.grid(row=10, column=0, columnspan=4, sticky=tk.EW, padx=5, pady=5)
+        state_display_frame.grid(row=13, column=0, columnspan=4, sticky=tk.EW, padx=5, pady=5)
         
         ttk.Label(state_display_frame, text="Matching State Name:").grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
         self.matching_state_var = tk.StringVar(value="No hand loaded")
@@ -747,7 +769,24 @@ class HandHistoryExplorer(tk.Tk):
                 LEFT JOIN hand_reviews hr ON hh.id = hr.hand_id
             """
             qb = QueryBuilder(base_select)
-            qb.add_condition(Condition("game_type", "LIKE", "zoom_cash_6max%"))
+            
+            # Add structured format conditions if specified
+            game_class = self.game_class_var.get().strip()
+            game_variant = self.game_variant_var.get().strip()
+            table_size = self.table_size_var.get().strip()
+            
+            # Use structured format fields if any are specified, otherwise fall back to game_type
+            if game_class or game_variant or table_size:
+                if game_class:
+                    qb.add_condition(Condition("game_class", "=", game_class))
+                if game_variant:
+                    qb.add_condition(Condition("game_variant", "=", game_variant))
+                if table_size:
+                    qb.add_condition(Condition("table_size", "=", table_size))
+            else:
+                # Fall back to legacy game_type pattern
+                game_type = self.pf_game_type_var.get().strip()
+                qb.add_condition(Condition("game_type", "LIKE", f"{game_type}%"))
             
             # Add time period condition if enabled
             if self.time_period_var.get():
@@ -801,6 +840,7 @@ class HandHistoryExplorer(tk.Tk):
             # Add existing conditions
             pf_selected = self.pf_seq_var.get().strip()
             pf_action_str = self.pf_action_str_var.get().strip()
+            print(f"DEBUG: pf_selected = '{pf_selected}', pf_action_str = '{pf_action_str}' (type: {type(pf_action_str)})")
             # Use different logic depending on the checkbox
             if hasattr(self, 'pf_action_no_var') and not self.pf_action_no_var.get():
                 # Checkbox is unchecked: use preflop pattern SQL
@@ -813,9 +853,8 @@ class HandHistoryExplorer(tk.Tk):
                     pf_values = tuple(v.strip() for v in pf_action_str.split(";") if v.strip())
                     if pf_values:
                         qb.add_condition(Condition("pf_action_seq", "IN", pf_values))
-                    else:
-                        qb.add_condition(Condition("pf_action_seq", "=", ""))
-                else:
+                    # If no values specified, don't add any condition - let it match all
+                elif pf_action_str:  # Only add condition if pf_action_str is not empty
                     qb.add_condition(Condition("pf_action_seq", "=", pf_action_str))
             
             flop_sql_pattern = self.flop_sql_pattern_var.get().strip()
@@ -854,7 +893,26 @@ class HandHistoryExplorer(tk.Tk):
             
             with self.db.conn.cursor() as cur:
                 # First, let's check how many hands match just the basic conditions
-                basic_query = "SELECT COUNT(*) FROM hand_histories WHERE game_type LIKE 'zoom_cash_6max%'"
+                game_class = self.game_class_var.get().strip()
+                game_variant = self.game_variant_var.get().strip()
+                table_size = self.table_size_var.get().strip()
+                
+                if game_class or game_variant or table_size:
+                    # Build structured format query
+                    conditions = []
+                    if game_class:
+                        conditions.append(f"game_class = '{game_class}'")
+                    if game_variant:
+                        conditions.append(f"game_variant = '{game_variant}'")
+                    if table_size:
+                        conditions.append(f"table_size = '{table_size}'")
+                    
+                    basic_query = f"SELECT COUNT(*) FROM hand_histories WHERE {' AND '.join(conditions)}"
+                else:
+                    # Fall back to legacy game_type pattern
+                    game_type = self.pf_game_type_var.get().strip()
+                    basic_query = f"SELECT COUNT(*) FROM hand_histories WHERE game_type LIKE '{game_type}%'"
+                
                 cur.execute(basic_query)
                 basic_count = cur.fetchone()[0]
                 print(f"Total hands matching basic conditions: {basic_count}")
@@ -891,7 +949,7 @@ class HandHistoryExplorer(tk.Tk):
                                     # Check if player was active at the flop
                                     player_active = False
                                     for player in flop_node.active_players:
-                                        if player.player == player_name and player.is_active:
+                                        if player and player.player == player_name and player.is_active:
                                             player_active = True
                                             break
                                     
@@ -927,14 +985,29 @@ class HandHistoryExplorer(tk.Tk):
                 (hand_id, game_type, pf_seq, flop_seq, turn_seq, river_seq, raw_text) = row
                 
                 # Parse the hand history to get HandHistoryData
-                parser = get_hand_history_parser(raw_text)
-                hh_data = parser.parse(raw_text)
+                try:
+                    parser = get_hand_history_parser(raw_text)
+                    hh_data = parser.parse(raw_text)
+                except Exception as parse_error:
+                    print(f"Error parsing hand history: {parse_error}")
+                    # Create a minimal hh_data object to prevent crashes
+                    class MinimalHandData:
+                        def get_simple_action_sequence(self, street):
+                            return "Error parsing hand"
+                    hh_data = MinimalHandData()
                 
                 # Generate action sequences on the fly
-                pf_seq = hh_data.get_simple_action_sequence("preflop")
-                flop_seq = hh_data.get_simple_action_sequence("flop")
-                turn_seq = hh_data.get_simple_action_sequence("turn")
-                river_seq = hh_data.get_simple_action_sequence("river")
+                try:
+                    pf_seq = hh_data.get_simple_action_sequence("preflop")
+                    flop_seq = hh_data.get_simple_action_sequence("flop")
+                    turn_seq = hh_data.get_simple_action_sequence("turn")
+                    river_seq = hh_data.get_simple_action_sequence("river")
+                except Exception as seq_error:
+                    print(f"Error generating action sequences: {seq_error}")
+                    pf_seq = "Error"
+                    flop_seq = "Error"
+                    turn_seq = "Error"
+                    river_seq = "Error"
                 
                 display_text = (f"Result {self.current_index+1} of {len(self.query_results)}\n"
                               f"ID: {hand_id}\nGame Type: {game_type}\n"
@@ -1007,6 +1080,9 @@ class HandHistoryExplorer(tk.Tk):
             return
         state_data = {
             "pf_game_type": self.pf_game_type_var.get().strip(),
+            "game_class": self.game_class_var.get().strip(),
+            "game_variant": self.game_variant_var.get().strip(),
+            "table_size": self.table_size_var.get().strip(),
             "pf_action_number": self.pf_seq_var.get().strip(),
             "flop_pattern": self.flop_pattern_var.get().strip(),
             "turn_pattern": self.turn_pattern_var.get().strip(),
@@ -1029,6 +1105,9 @@ class HandHistoryExplorer(tk.Tk):
         state_data = self.state_manager.get_state(state_name)
         if state_data:
             self.pf_game_type_var.set(state_data.get("pf_game_type", "zoom_cash_6max"))
+            self.game_class_var.set(state_data.get("game_class", ""))
+            self.game_variant_var.set(state_data.get("game_variant", ""))
+            self.table_size_var.set(state_data.get("table_size", ""))
             self.refresh_pf_actions()
             self.pf_seq_var.set(state_data.get("pf_action_number", ""))
             self.flop_pattern_var.set(state_data.get("flop_pattern", "None"))
@@ -1230,7 +1309,17 @@ class HandHistoryExplorer(tk.Tk):
             hh_data = parser.parse(row[6])
             hh_data.hand_id = row[0]  # Set the hand ID
             hh_data.raw_text = row[6]  # Add raw text for board texture matching
-            hh_data.compute_betting_opportunities()  # Compute betting opportunities
+            
+            # Try to compute betting opportunities, but don't fail if it doesn't work
+            try:
+                hh_data.compute_betting_opportunities()  # Compute betting opportunities
+            except Exception as opp_error:
+                print(f"Warning: Could not compute betting opportunities: {opp_error}")
+                # Continue without betting opportunities
+                # Set an empty list to prevent further errors
+                if hasattr(hh_data, 'betting_opportunities'):
+                    hh_data.betting_opportunities = []
+                
             self.current_hand["hand_history_data"] = hh_data
             
         except Exception as e:
@@ -1411,11 +1500,15 @@ class HandHistoryExplorer(tk.Tk):
             # Print active players
             text_widget.insert(tk.END, f"{indent}Active Players:\n")
             for player in node.active_players:
-                text_widget.insert(tk.END, f"{indent}  - {player.player} (Stack: ${player.stack:.2f}, "
-                                         f"Remaining: ${player.remaining_stack:.2f}, "
-                                         f"Contribution: ${player.total_contribution:.2f}, "
-                                         f"Position: {player.position or 'N/A'}, "
-                                         f"Active: {player.is_active})\n")
+                if player:  # Check if player is not None
+                    try:
+                        text_widget.insert(tk.END, f"{indent}  - {player.player} (Stack: ${player.stack:.2f}, "
+                                                 f"Remaining: ${player.remaining_stack:.2f}, "
+                                                 f"Contribution: ${player.total_contribution:.2f}, "
+                                                 f"Position: {player.position or 'N/A'}, "
+                                                 f"Active: {player.is_active})\n")
+                    except AttributeError as e:
+                        text_widget.insert(tk.END, f"{indent}  - Invalid player object: {e}\n")
             
             text_widget.insert(tk.END, "\n")
         
@@ -1605,7 +1698,24 @@ class HandHistoryExplorer(tk.Tk):
             qb = QueryBuilder(
                 "SELECT id, game_type, pf_action_seq, flop_action_seq, turn_action_seq, river_action_seq, raw_text FROM hand_histories"
             )
-            qb.add_condition(Condition("game_type", "LIKE", "zoom_cash_6max%"))
+            
+            # Add structured format conditions if specified
+            game_class = self.game_class_var.get().strip()
+            game_variant = self.game_variant_var.get().strip()
+            table_size = self.table_size_var.get().strip()
+            
+            # Use structured format fields if any are specified, otherwise fall back to game_type
+            if game_class or game_variant or table_size:
+                if game_class:
+                    qb.add_condition(Condition("game_class", "=", game_class))
+                if game_variant:
+                    qb.add_condition(Condition("game_variant", "=", game_variant))
+                if table_size:
+                    qb.add_condition(Condition("table_size", "=", table_size))
+            else:
+                # Fall back to legacy game_type pattern
+                game_type = self.pf_game_type_var.get().strip()
+                qb.add_condition(Condition("game_type", "LIKE", f"{game_type}%"))
             
             # Add time period condition if enabled
             if self.time_period_var.get():
@@ -1655,6 +1765,7 @@ class HandHistoryExplorer(tk.Tk):
             # Add existing conditions
             pf_selected = self.pf_seq_var.get().strip()
             pf_action_str = self.pf_action_str_var.get().strip()
+            print(f"DEBUG: pf_selected = '{pf_selected}', pf_action_str = '{pf_action_str}' (type: {type(pf_action_str)})")
             # Use different logic depending on the checkbox
             if hasattr(self, 'pf_action_no_var') and not self.pf_action_no_var.get():
                 # Checkbox is unchecked: use preflop pattern SQL
@@ -1667,9 +1778,8 @@ class HandHistoryExplorer(tk.Tk):
                     pf_values = tuple(v.strip() for v in pf_action_str.split(";") if v.strip())
                     if pf_values:
                         qb.add_condition(Condition("pf_action_seq", "IN", pf_values))
-                    else:
-                        qb.add_condition(Condition("pf_action_seq", "=", ""))
-                else:
+                    # If no values specified, don't add any condition - let it match all
+                elif pf_action_str:  # Only add condition if pf_action_str is not empty
                     qb.add_condition(Condition("pf_action_seq", "=", pf_action_str))
             
             flop_sql_pattern = self.flop_sql_pattern_var.get().strip()

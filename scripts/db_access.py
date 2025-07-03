@@ -3,6 +3,7 @@ from psycopg2 import sql, OperationalError
 import re
 import sys
 import os
+import fnmatch
 
 # Add parent directory to path to import board_analyzer
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -377,7 +378,8 @@ class DatabaseAccess:
                 data = cur.fetchone()
                 if not data: 
                     return None
-                # Columns: id, tag_id, desc, pf, f, t, r, created_at, board_texture, min_stack, max_stack
+                # Columns: id, tag_id, desc, pf, f, t, r, created_at, board_texture, min_stack, max_stack, 
+                # game_type_pattern, num_players, game_class_pattern, game_variant_pattern, table_size_pattern
                 return {
                     "id": data[0], 
                     "tag_id": data[1], 
@@ -388,7 +390,12 @@ class DatabaseAccess:
                     "river_pattern": data[6] if data[6] else "",
                     "board_texture": data[8] if data[8] else "",
                     "min_stack_bb": data[9],
-                    "max_stack_bb": data[10]
+                    "max_stack_bb": data[10],
+                    "game_type_pattern": data[11] if len(data) > 11 and data[11] else "",
+                    "num_players": data[12] if len(data) > 12 else None,
+                    "game_class_pattern": data[13] if len(data) > 13 and data[13] else "",
+                    "game_variant_pattern": data[14] if len(data) > 14 and data[14] else "",
+                    "table_size_pattern": data[15] if len(data) > 15 and data[15] else ""
                 }
         except Exception as e:
             print(f"Error getting rule details: {e}")
@@ -407,21 +414,29 @@ class DatabaseAccess:
                     cur.execute("""
                         UPDATE study_tag_rules SET rule_description=%s, pf_action_seq_pattern=%s,
                         flop_action_seq_pattern=%s, turn_action_seq_pattern=%s, river_action_seq_pattern=%s,
-                        board_texture_pattern=%s, min_effective_stack_bb=%s, max_effective_stack_bb=%s WHERE id=%s
+                        board_texture_pattern=%s, min_effective_stack_bb=%s, max_effective_stack_bb=%s,
+                        game_type_pattern=%s, num_players=%s, game_class_pattern=%s, game_variant_pattern=%s, table_size_pattern=%s WHERE id=%s
                     """, (
                         rule_data['rule_description'], rule_data['pf_pattern'], rule_data['flop_pattern'],
                         rule_data['turn_pattern'], rule_data['river_pattern'], rule_data.get('board_texture', ''),
-                        rule_data.get('min_stack_bb'), rule_data.get('max_stack_bb'), rule_id))
+                        rule_data.get('min_stack_bb'), rule_data.get('max_stack_bb'),
+                        rule_data.get('game_type_pattern', ''), rule_data.get('num_players'),
+                        rule_data.get('game_class_pattern', ''), rule_data.get('game_variant_pattern', ''),
+                        rule_data.get('table_size_pattern', ''), rule_id))
                 else:  # Insert new rule
                     cur.execute("""
                         INSERT INTO study_tag_rules (tag_id, rule_description, pf_action_seq_pattern,
                         flop_action_seq_pattern, turn_action_seq_pattern, river_action_seq_pattern, board_texture_pattern,
-                        min_effective_stack_bb, max_effective_stack_bb)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        min_effective_stack_bb, max_effective_stack_bb, game_type_pattern, num_players,
+                        game_class_pattern, game_variant_pattern, table_size_pattern)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         rule_data['tag_id'], rule_data['rule_description'], rule_data['pf_pattern'],
                         rule_data['flop_pattern'], rule_data['turn_pattern'], rule_data['river_pattern'], 
-                        rule_data.get('board_texture', ''), rule_data.get('min_stack_bb'), rule_data.get('max_stack_bb')))
+                        rule_data.get('board_texture', ''), rule_data.get('min_stack_bb'), rule_data.get('max_stack_bb'),
+                        rule_data.get('game_type_pattern', ''), rule_data.get('num_players'),
+                        rule_data.get('game_class_pattern', ''), rule_data.get('game_variant_pattern', ''),
+                        rule_data.get('table_size_pattern', '')))
                 self.conn.commit()
                 return True
         except Exception as e:
@@ -488,24 +503,85 @@ class DatabaseAccess:
         max_stack = rule.get('max_stack_bb')
         if min_stack is not None or max_stack is not None:
             effective_stack = getattr(hh_data, 'effective_stack_bb', None)
-            
-            # Debug logging
-            if effective_stack is not None:
-                print(f"DEBUG: Hand effective_stack_bb = {effective_stack}")
-            else:
-                print(f"DEBUG: Hand effective_stack_bb is None")
-            
             if effective_stack is None:
                 return False  # Cannot match a stack rule if hand data is missing
-            
             if min_stack is not None and effective_stack < min_stack:
-                print(f"DEBUG: Stack too small: {effective_stack} < {min_stack}")
                 return False
             if max_stack is not None and effective_stack > max_stack:
-                print(f"DEBUG: Stack too large: {effective_stack} > {max_stack}")
                 return False
+        # --- Structured Game Format Matching ---
+        # Get format details from hand data (fallback to old method if get_format_details not available)
+        try:
+            if hasattr(hh_data, 'get_format_details'):
+                details = hh_data.get_format_details()
+                hand_game_class = details.get('game_class', '')
+                hand_game_variant = details.get('game_variant', '')
+                hand_table_size = details.get('table_size', '')
+            else:
+                # Fallback: try to extract from existing game_type
+                hand_game_type = getattr(hh_data, 'game_type', '')
+                hand_game_class = 'cash' if 'cash' in hand_game_type.lower() else 'tournament' if 'tournament' in hand_game_type.lower() else ''
+                hand_game_variant = 'zoom' if 'zoom' in hand_game_type.lower() else 'regular'
+                hand_table_size = '6-max' if '6max' in hand_game_type.lower() else '2-max' if '2max' in hand_game_type.lower() else '9-max' if '9max' in hand_game_type.lower() else ''
+        except Exception as e:
+            print(f"DEBUG: Error getting format details: {e}")
+            hand_game_class = ''
+            hand_game_variant = ''
+            hand_table_size = ''
 
-        return True  # All patterns, textures, and stack depths matched
+        # Check Game Class
+        class_pattern = rule.get('game_class_pattern')
+        if class_pattern:
+            print(f"DEBUG: Game class matching - pattern: '{class_pattern}', hand game_class: '{hand_game_class}'")
+            if not fnmatch.fnmatch(hand_game_class, class_pattern):
+                print(f"DEBUG: Game class pattern '{class_pattern}' did NOT match hand game_class '{hand_game_class}'")
+                return False
+            else:
+                print(f"DEBUG: Game class pattern '{class_pattern}' matched hand game_class '{hand_game_class}'")
+
+        # Check Game Variant
+        variant_pattern = rule.get('game_variant_pattern')
+        if variant_pattern:
+            print(f"DEBUG: Game variant matching - pattern: '{variant_pattern}', hand game_variant: '{hand_game_variant}'")
+            if not fnmatch.fnmatch(hand_game_variant, variant_pattern):
+                print(f"DEBUG: Game variant pattern '{variant_pattern}' did NOT match hand game_variant '{hand_game_variant}'")
+                return False
+            else:
+                print(f"DEBUG: Game variant pattern '{variant_pattern}' matched hand game_variant '{hand_game_variant}'")
+
+        # Check Table Size
+        size_pattern = rule.get('table_size_pattern')
+        if size_pattern:
+            print(f"DEBUG: Table size matching - pattern: '{size_pattern}', hand table_size: '{hand_table_size}'")
+            if not fnmatch.fnmatch(hand_table_size, size_pattern):
+                print(f"DEBUG: Table size pattern '{size_pattern}' did NOT match hand table_size '{hand_table_size}'")
+                return False
+            else:
+                print(f"DEBUG: Table size pattern '{size_pattern}' matched hand table_size '{hand_table_size}'")
+
+        # --- Legacy Game Type Pattern Matching (for backward compatibility) ---
+        gt_pattern = rule.get('game_type_pattern')
+        if gt_pattern:
+            hand_game_type = getattr(hh_data, 'game_type', '')
+            print(f"DEBUG: Legacy game type matching - pattern: '{gt_pattern}', hand game_type: '{hand_game_type}'")
+            if not fnmatch.fnmatch(hand_game_type, gt_pattern):
+                print(f"DEBUG: Legacy game type pattern '{gt_pattern}' did NOT match hand game_type '{hand_game_type}'")
+                return False
+            else:
+                print(f"DEBUG: Legacy game type pattern '{gt_pattern}' matched hand game_type '{hand_game_type}'")
+
+        # --- Legacy Player Count Matching (for backward compatibility) ---
+        rule_num_players = rule.get('num_players')
+        if rule_num_players is not None:
+            hand_num_players = getattr(hh_data, 'number_of_players', None)
+            print(f"DEBUG: Legacy player count matching - rule expects: {rule_num_players}, hand has: {hand_num_players}")
+            if hand_num_players != rule_num_players:
+                print(f"DEBUG: Legacy player count mismatch - expected {rule_num_players}, got {hand_num_players}")
+                return False
+            else:
+                print(f"DEBUG: Legacy player count matched - both are {rule_num_players}")
+
+        return True  # All conditions passed
 
     def find_relevant_study_documents(self, hh_data):
         """
@@ -521,7 +597,8 @@ class DatabaseAccess:
                 cur.execute("""
                     SELECT id, tag_id, rule_description, pf_action_seq_pattern, 
                            flop_action_seq_pattern, turn_action_seq_pattern, river_action_seq_pattern,
-                           board_texture_pattern, min_effective_stack_bb, max_effective_stack_bb
+                           board_texture_pattern, min_effective_stack_bb, max_effective_stack_bb,
+                           game_type_pattern, num_players, game_class_pattern, game_variant_pattern, table_size_pattern
                     FROM study_tag_rules
                 """)
                 all_rules_raw = cur.fetchall()
@@ -537,17 +614,25 @@ class DatabaseAccess:
                 "board_texture": r[7],  # board_texture_pattern column (index 7 in SELECT query)
                 "min_stack_bb": r[8],   # min_effective_stack_bb
                 "max_stack_bb": r[9],   # max_effective_stack_bb
+                "game_type_pattern": r[10] if len(r) > 10 and r[10] else "",  # game_type_pattern
+                "num_players": r[11] if len(r) > 11 else None,  # num_players
+                "game_class_pattern": r[12] if len(r) > 12 and r[12] else "",  # game_class_pattern
+                "game_variant_pattern": r[13] if len(r) > 13 and r[13] else "",  # game_variant_pattern
+                "table_size_pattern": r[14] if len(r) > 14 and r[14] else "",  # table_size_pattern
             } for r in all_rules_raw]
 
             # 2. Find all tags where at least one rule matches
             matching_tag_ids = set()
             for rule in all_rules:
-                # Debug: Print rule dict for Rule 9 and any rule with stack constraints
-                if rule["id"] == 9 or rule["min_stack_bb"] is not None or rule["max_stack_bb"] is not None:
-                    print(f"DEBUG: Checking rule {rule['id']} - min_stack_bb: {rule['min_stack_bb']}, max_stack_bb: {rule['max_stack_bb']}")
+                # Debug: Print rule dict for rules with game type or player count constraints
+                if rule.get("game_type_pattern") or rule.get("num_players") is not None:
+                    print(f"DEBUG: Checking rule {rule['id']} - game_type_pattern: '{rule.get('game_type_pattern')}', num_players: {rule.get('num_players')}")
                     print(f"DEBUG: Rule dict: {rule}")
                 if self._check_rule_match(rule, hh_data):
                     matching_tag_ids.add(rule['tag_id'])
+                    print(f"DEBUG: Rule {rule['id']} MATCHED for tag {rule['tag_id']}")
+                else:
+                    print(f"DEBUG: Rule {rule['id']} did NOT match")
 
             if not matching_tag_ids:
                 return []

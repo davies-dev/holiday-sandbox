@@ -25,6 +25,13 @@ class RuleEditorWindow(tk.Toplevel):
         self.board_var = tk.StringVar(value=self.rule_data.get('board_texture', ''))
         self.min_stack_var = tk.StringVar(value=str(self.rule_data.get('min_stack_bb', '') or ''))
         self.max_stack_var = tk.StringVar(value=str(self.rule_data.get('max_stack_bb', '') or ''))
+        # New structured format fields
+        self.game_class_var = tk.StringVar(value=self.rule_data.get('game_class_pattern', ''))
+        self.game_variant_var = tk.StringVar(value=self.rule_data.get('game_variant_pattern', ''))
+        self.table_size_var = tk.StringVar(value=self.rule_data.get('table_size_pattern', ''))
+        # Legacy fields for backward compatibility
+        self.game_type_var = tk.StringVar(value=self.rule_data.get('game_type_pattern', ''))
+        self.num_players_var = tk.StringVar(value=str(self.rule_data.get('num_players', '') or ''))
 
         # Create main frame with padding
         main_frame = ttk.Frame(self, padding="10")
@@ -39,7 +46,12 @@ class RuleEditorWindow(tk.Toplevel):
             ("River Pattern", self.river_var, "Regex pattern for river action sequence"),
             ("Board Texture", self.board_var, "Comma-separated board textures (e.g., 'paired,A-high,monotone')"),
             ("Min Stack (bb)", self.min_stack_var, "Minimum effective stack in big blinds (optional)"),
-            ("Max Stack (bb)", self.max_stack_var, "Maximum effective stack in big blinds (optional)")
+            ("Max Stack (bb)", self.max_stack_var, "Maximum effective stack in big blinds (optional)"),
+            ("Game Class (cash, tournament)", self.game_class_var, "Game class pattern (e.g., 'cash', 'tournament')"),
+            ("Game Variant (zoom, regular)", self.game_variant_var, "Game variant pattern (e.g., 'zoom', 'regular')"),
+            ("Table Size (6-max, 2-max)", self.table_size_var, "Table size pattern (e.g., '6-max', '2-max', '9-max')"),
+            ("Legacy Game Type Pattern", self.game_type_var, "Legacy game type pattern (e.g., 'spingo%', 'holdem%')"),
+            ("Legacy Num Players", self.num_players_var, "Legacy number of players (e.g., 6, 9, 2)")
         ]
         
         for i, (text, var, help_text) in enumerate(fields):
@@ -81,14 +93,25 @@ class RuleEditorWindow(tk.Toplevel):
         self.rule_data['turn_pattern'] = self.turn_var.get()
         self.rule_data['river_pattern'] = self.river_var.get()
         self.rule_data['board_texture'] = self.board_var.get()
+        
+        # New structured format fields
+        self.rule_data['game_class_pattern'] = self.game_class_var.get()
+        self.rule_data['game_variant_pattern'] = self.game_variant_var.get()
+        self.rule_data['table_size_pattern'] = self.table_size_var.get()
+        
+        # Legacy fields for backward compatibility
+        self.rule_data['game_type_pattern'] = self.game_type_var.get()
+        
         # Validate and save stack depth fields
         try:
             min_val = self.min_stack_var.get().strip()
             max_val = self.max_stack_var.get().strip()
             self.rule_data['min_stack_bb'] = int(min_val) if min_val else None
             self.rule_data['max_stack_bb'] = int(max_val) if max_val else None
+            players_val = self.num_players_var.get().strip()
+            self.rule_data['num_players'] = int(players_val) if players_val else None
         except ValueError:
-            messagebox.showerror("Validation Error", "Stack depth must be a valid number.")
+            messagebox.showerror("Validation Error", "Stack depth and number of players must be valid numbers.")
             return
         if self.db.save_rule(self.rule_data):
             self.callback()  # Refresh the list in the main window
@@ -338,7 +361,12 @@ class LibrarianApp(tk.Tk):
         if not file_path:
             return # User cancelled
 
-        title = simpledialog.askstring("Document Title", "Enter the title for this document:")
+        # Extract filename without extension as default title
+        import os
+        filename = os.path.basename(file_path)
+        default_title = os.path.splitext(filename)[0]
+
+        title = simpledialog.askstring("Document Title", "Enter the title for this document:", initialvalue=default_title)
         if not title:
             return # User cancelled
 
