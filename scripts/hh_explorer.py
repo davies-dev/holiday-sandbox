@@ -4,6 +4,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 from db_access import DatabaseAccess
 from query_builder import QueryBuilder, Condition, SortCriterion
 from saved_state_manager import SavedStateManager
+from spot_profile_manager import open_spot_profile_manager
 from typing import List
 from holiday_parser import (
     get_hand_history_parser, 
@@ -25,7 +26,7 @@ import os
 import webbrowser
 import pathlib
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import DB_PARAMS, GTO_BASE_PATH, GTO_EXECUTABLE_PATH
 from file_utils import find_gto_file_in_locations
 import subprocess
@@ -445,6 +446,7 @@ class HandHistoryExplorer(tk.Tk):
         
         # Create our database access instance.
         self.db = DatabaseAccess(**DB_PARAMS)
+        self.game_profiles = self.db.get_game_profiles()
         self.all_spots = self.db.get_spots_for_dropdowns()
         # Initialize our saved state manager.
         self.state_manager = SavedStateManager("saved_states.json")
@@ -491,171 +493,183 @@ class HandHistoryExplorer(tk.Tk):
         query_frame = ttk.LabelFrame(parent, text="Query Settings")
         query_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="PF Game Type:").grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
+        # --- Game Profile Dropdown ---
+        ttk.Label(query_frame, text="Game Profile:").grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
+        self.game_profile_var = tk.StringVar()
+        profile_names = list(self.game_profiles.keys())
+        self.game_profile_combo = ttk.Combobox(query_frame, textvariable=self.game_profile_var,
+                                               values=profile_names, state="readonly", width=20)
+        self.game_profile_combo.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+        self.game_profile_combo.bind("<<ComboboxSelected>>", self._on_profile_selected)
+        
+        ttk.Label(query_frame, text="PF Game Type:").grid(row=1, column=0, sticky=tk.E, padx=5, pady=5)
         self.pf_game_type_var = tk.StringVar(value="zoom_cash_6max")
         game_types = ["zoom_cash_6max", "spingo", "husng spots","tournament"]
         self.pf_game_type_combo = ttk.Combobox(query_frame, textvariable=self.pf_game_type_var,
                                                values=game_types, state="readonly", width=20)
-        self.pf_game_type_combo.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+        self.pf_game_type_combo.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
         self.pf_game_type_combo.bind("<<ComboboxSelected>>", lambda event: self.refresh_pf_actions())
         
         # --- Structured Format Dropdowns ---
-        ttk.Label(query_frame, text="Game Class:").grid(row=1, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Game Class:").grid(row=2, column=0, sticky=tk.E, padx=5, pady=5)
         self.game_class_var = tk.StringVar(value="")
         game_classes = ["", "cash", "tournament"]
         self.game_class_combo = ttk.Combobox(query_frame, textvariable=self.game_class_var,
                                              values=game_classes, state="readonly", width=20)
-        self.game_class_combo.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        self.game_class_combo.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        self.game_class_combo.bind("<<ComboboxSelected>>", self._update_spot_dropdown)
         
-        ttk.Label(query_frame, text="Game Variant:").grid(row=2, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Game Variant:").grid(row=3, column=0, sticky=tk.E, padx=5, pady=5)
         self.game_variant_var = tk.StringVar(value="")
         game_variants = ["", "zoom", "regular"]
         self.game_variant_combo = ttk.Combobox(query_frame, textvariable=self.game_variant_var,
                                                values=game_variants, state="readonly", width=20)
-        self.game_variant_combo.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        self.game_variant_combo.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        self.game_variant_combo.bind("<<ComboboxSelected>>", self._update_spot_dropdown)
         
-        ttk.Label(query_frame, text="Table Size:").grid(row=3, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Table Size:").grid(row=4, column=0, sticky=tk.E, padx=5, pady=5)
         self.table_size_var = tk.StringVar(value="")
         table_sizes = ["", "2-max", "3-max", "6-max", "9-max"]
         self.table_size_combo = ttk.Combobox(query_frame, textvariable=self.table_size_var,
                                              values=table_sizes, state="readonly", width=20)
-        self.table_size_combo.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        self.table_size_combo.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
+        self.table_size_combo.bind("<<ComboboxSelected>>", self._update_spot_dropdown)
         
-        ttk.Label(query_frame, text="Preflop Action Number:").grid(row=4, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Preflop Spot:").grid(row=5, column=0, sticky=tk.E, padx=5, pady=5)
         # Store label reference for dynamic update
-        self.pf_seq_label = ttk.Label(query_frame, text="Preflop Action Number:")
-        self.pf_seq_label.grid(row=4, column=0, sticky=tk.E, padx=5, pady=5)
+        self.pf_spot_label = ttk.Label(query_frame, text="Preflop Spot:")
+        self.pf_spot_label.grid(row=5, column=0, sticky=tk.E, padx=5, pady=5)
         # Dropdown setup (keep reference for dynamic update)
         self.pf_actions = self.all_spots.get('preflop', {})
         pf_options = sorted(self.pf_actions.keys(), key=lambda x: int(x) if x.isdigit() else 999)
         self.pf_seq_var = tk.StringVar(value="Unnamed")
         self.pf_seq_combo = ttk.Combobox(query_frame, textvariable=self.pf_seq_var,
                                          values=["Unnamed"] + pf_options, state="readonly", width=20)
-        self.pf_seq_combo.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
+        self.pf_seq_combo.grid(row=5, column=1, sticky=tk.W, padx=5, pady=5)
         self.pf_seq_combo.bind("<<ComboboxSelected>>", self.on_pf_selection)
 
         # Add a read-only entry for preflop SQL pattern (initially empty)
         self.pf_sql_pattern_var = tk.StringVar()
         self.pf_sql_pattern_entry = ttk.Entry(query_frame, textvariable=self.pf_sql_pattern_var, width=40, state="readonly")
-        self.pf_sql_pattern_entry.grid(row=4, column=3, sticky=tk.W, padx=5, pady=5)
+        self.pf_sql_pattern_entry.grid(row=5, column=3, sticky=tk.W, padx=5, pady=5)
         self.pf_sql_pattern_entry.grid_remove()  # Hide by default
 
         # Add pf Action no checkbox to the right of the SQL pattern entry
         self.pf_action_no_var = tk.BooleanVar(value=True)
         self.pf_action_no_checkbox = ttk.Checkbutton(query_frame, text="pf Action no", variable=self.pf_action_no_var, command=self.on_pf_action_no_toggle)
-        self.pf_action_no_checkbox.grid(row=4, column=4, sticky=tk.W, padx=5, pady=5)
+        self.pf_action_no_checkbox.grid(row=5, column=4, sticky=tk.W, padx=5, pady=5)
 
         # Action String label/entry (only shown when checkbox is checked)
         self.pf_action_str_label = ttk.Label(query_frame, text="Action String:")
-        self.pf_action_str_label.grid(row=4, column=2, sticky=tk.E, padx=5, pady=5)
+        self.pf_action_str_label.grid(row=5, column=2, sticky=tk.E, padx=5, pady=5)
         self.pf_action_str_var = tk.StringVar()
         self.pf_action_entry = ttk.Entry(query_frame, textvariable=self.pf_action_str_var, width=40)
-        self.pf_action_entry.grid(row=4, column=3, sticky=tk.W, padx=5, pady=5)
+        self.pf_action_entry.grid(row=5, column=3, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="Flop Pattern:").grid(row=5, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Flop Pattern:").grid(row=6, column=0, sticky=tk.E, padx=5, pady=5)
         postflop_patterns = self.all_spots.get('postflop', {})
         postflop_options = ["None"] + sorted(postflop_patterns.keys())
         self.flop_pattern_var = tk.StringVar(value="None")
         self.flop_pattern_combo = ttk.Combobox(query_frame, textvariable=self.flop_pattern_var,
                                                values=postflop_options, state="readonly", width=20)
-        self.flop_pattern_combo.grid(row=5, column=1, sticky=tk.W, padx=5, pady=5)
+        self.flop_pattern_combo.grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
         self.flop_pattern_combo.bind("<<ComboboxSelected>>", self.on_flop_pattern_selection)
-        ttk.Label(query_frame, text="Flop SQL Pattern:").grid(row=5, column=2, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Flop SQL Pattern:").grid(row=6, column=2, sticky=tk.E, padx=5, pady=5)
         self.flop_sql_pattern_var = tk.StringVar()
         self.flop_sql_pattern_entry = ttk.Entry(query_frame, textvariable=self.flop_sql_pattern_var,
                                                 width=40, state="readonly")
-        self.flop_sql_pattern_entry.grid(row=5, column=3, sticky=tk.W, padx=5, pady=5)
+        self.flop_sql_pattern_entry.grid(row=6, column=3, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="Turn Pattern:").grid(row=6, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Turn Pattern:").grid(row=7, column=0, sticky=tk.E, padx=5, pady=5)
         postflop_patterns = self.all_spots.get('postflop', {})
         postflop_options = ["None"] + sorted(postflop_patterns.keys())
         self.turn_pattern_var = tk.StringVar(value="None")
         self.turn_pattern_combo = ttk.Combobox(query_frame, textvariable=self.turn_pattern_var,
                                                values=postflop_options, state="readonly", width=20)
-        self.turn_pattern_combo.grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
+        self.turn_pattern_combo.grid(row=7, column=1, sticky=tk.W, padx=5, pady=5)
         self.turn_pattern_combo.bind("<<ComboboxSelected>>", self.on_turn_pattern_selection)
-        ttk.Label(query_frame, text="Turn SQL Pattern:").grid(row=6, column=2, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Turn SQL Pattern:").grid(row=7, column=2, sticky=tk.E, padx=5, pady=5)
         self.turn_sql_pattern_var = tk.StringVar()
         self.turn_sql_pattern_entry = ttk.Entry(query_frame, textvariable=self.turn_sql_pattern_var,
                                                 width=40, state="readonly")
-        self.turn_sql_pattern_entry.grid(row=6, column=3, sticky=tk.W, padx=5, pady=5)
+        self.turn_sql_pattern_entry.grid(row=7, column=3, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="River Pattern:").grid(row=7, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="River Pattern:").grid(row=8, column=0, sticky=tk.E, padx=5, pady=5)
         postflop_patterns = self.all_spots.get('postflop', {})
         postflop_options = ["None"] + sorted(postflop_patterns.keys())
         self.river_pattern_var = tk.StringVar(value="None")
         self.river_pattern_combo = ttk.Combobox(query_frame, textvariable=self.river_pattern_var,
                                                 values=postflop_options, state="readonly", width=20)
-        self.river_pattern_combo.grid(row=7, column=1, sticky=tk.W, padx=5, pady=5)
+        self.river_pattern_combo.grid(row=8, column=1, sticky=tk.W, padx=5, pady=5)
         self.river_pattern_combo.bind("<<ComboboxSelected>>", self.on_river_pattern_selection)
-        ttk.Label(query_frame, text="River SQL Pattern:").grid(row=7, column=2, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="River SQL Pattern:").grid(row=8, column=2, sticky=tk.E, padx=5, pady=5)
         self.river_sql_pattern_var = tk.StringVar()
         self.river_sql_pattern_entry = ttk.Entry(query_frame, textvariable=self.river_sql_pattern_var,
                                                 width=40, state="readonly")
-        self.river_sql_pattern_entry.grid(row=7, column=3, sticky=tk.W, padx=5, pady=5)
+        self.river_sql_pattern_entry.grid(row=8, column=3, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="Button Name:").grid(row=8, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Button Name:").grid(row=9, column=0, sticky=tk.E, padx=5, pady=5)
         self.button_name_var = tk.StringVar()
         self.button_entry = ttk.Entry(query_frame, textvariable=self.button_name_var, width=30)
-        self.button_entry.grid(row=8, column=1, sticky=tk.W, padx=5, pady=5)
+        self.button_entry.grid(row=9, column=1, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="Position:").grid(row=9, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Position:").grid(row=10, column=0, sticky=tk.E, padx=5, pady=5)
         self.position_var = tk.StringVar(value="None")
         positions_list = ["None", "BN", "SB", "BB", "UTG", "MP", "CO"]
         self.position_combo = ttk.Combobox(query_frame, textvariable=self.position_var,
                                            values=positions_list, state="readonly", width=20)
-        self.position_combo.grid(row=9, column=1, sticky=tk.W, padx=5, pady=5)
+        self.position_combo.grid(row=10, column=1, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(query_frame, text="Player Name for Position:").grid(row=9, column=2, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Player Name for Position:").grid(row=10, column=2, sticky=tk.E, padx=5, pady=5)
         self.position_player_var = tk.StringVar()
         self.position_player_entry = ttk.Entry(query_frame, textvariable=self.position_player_var, width=30)
-        self.position_player_entry.grid(row=9, column=3, sticky=tk.W, padx=5, pady=5)
+        self.position_player_entry.grid(row=10, column=3, sticky=tk.W, padx=5, pady=5)
         
         # --- Time Period Checkbox and Entry ---
         self.time_period_var = tk.BooleanVar(value=True)  # Default to checked
         self.time_period_checkbox = ttk.Checkbutton(query_frame, text="Time Period (hours):", 
                                                    variable=self.time_period_var,
                                                    command=self.toggle_time_period)
-        self.time_period_checkbox.grid(row=10, column=0, sticky=tk.E, padx=5, pady=5)
+        self.time_period_checkbox.grid(row=11, column=0, sticky=tk.E, padx=5, pady=5)
 
         self.time_period_entry_var = tk.StringVar(value="24")  # Default to 24 hours
         self.time_period_entry = ttk.Entry(query_frame, textvariable=self.time_period_entry_var, width=10)
-        self.time_period_entry.grid(row=10, column=1, sticky=tk.W, padx=5, pady=5)
+        self.time_period_entry.grid(row=11, column=1, sticky=tk.W, padx=5, pady=5)
 
         # --- Player Flop Checkbox and Entry ---
         self.player_flop_var = tk.BooleanVar(value=False)  # Default to unchecked
         self.player_flop_checkbox = ttk.Checkbutton(query_frame, text="Player Saw Flop:", 
                                                    variable=self.player_flop_var,
                                                    command=self.toggle_player_flop)
-        self.player_flop_checkbox.grid(row=10, column=2, sticky=tk.E, padx=5, pady=5)
+        self.player_flop_checkbox.grid(row=11, column=2, sticky=tk.E, padx=5, pady=5)
 
         self.player_flop_entry_var = tk.StringVar(value="")  # Default to empty
         self.player_flop_entry = ttk.Entry(query_frame, textvariable=self.player_flop_entry_var, width=30)
-        self.player_flop_entry.grid(row=10, column=3, sticky=tk.W, padx=5, pady=5)
+        self.player_flop_entry.grid(row=11, column=3, sticky=tk.W, padx=5, pady=5)
         self.player_flop_entry.config(state=tk.DISABLED)  # Initially disabled
         
-        ttk.Label(query_frame, text="Review Status:").grid(row=11, column=0, sticky=tk.E, padx=5, pady=5)
+        ttk.Label(query_frame, text="Review Status:").grid(row=12, column=0, sticky=tk.E, padx=5, pady=5)
         self.review_status_filter_var = tk.StringVar(value="All")
         status_filter_options = ["All", 'unreviewed', 'eyeballed', 'marked_for_review', 'waiting_on_gto', 'completed']
         self.review_status_filter_combo = ttk.Combobox(query_frame, textvariable=self.review_status_filter_var,
                                                        values=status_filter_options, state="readonly", width=20)
-        self.review_status_filter_combo.grid(row=11, column=1, sticky=tk.W, padx=5, pady=5)
+        self.review_status_filter_combo.grid(row=12, column=1, sticky=tk.W, padx=5, pady=5)
         # (You may need to renumber grid rows for widgets below this)
 
         self.query_button = ttk.Button(query_frame, text="Run Query", command=self.run_query)
-        self.query_button.grid(row=12, column=0, columnspan=2, pady=10, sticky=tk.W)
+        self.query_button.grid(row=13, column=0, columnspan=2, pady=10, sticky=tk.W)
         
         # Add Show Query button next to Run Query button
         self.show_query_button = ttk.Button(query_frame, text="Show Query", command=self.show_query)
-        self.show_query_button.grid(row=12, column=2, pady=10, sticky=tk.W)
+        self.show_query_button.grid(row=13, column=2, pady=10, sticky=tk.W)
         
         # Add after the query button
         refresh_btn = ttk.Button(query_frame, text="↻ Refresh Dropdowns", command=self.refresh_all_dropdowns)
-        refresh_btn.grid(row=12, column=3, pady=10, sticky=tk.E)
+        refresh_btn.grid(row=13, column=3, pady=10, sticky=tk.E)
         
         # --- New: State Name Display ---
         state_display_frame = ttk.LabelFrame(query_frame, text="Current Hand State")
-        state_display_frame.grid(row=13, column=0, columnspan=4, sticky=tk.EW, padx=5, pady=5)
+        state_display_frame.grid(row=14, column=0, columnspan=4, sticky=tk.EW, padx=5, pady=5)
         
         ttk.Label(state_display_frame, text="Matching State Name:").grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
         self.matching_state_var = tk.StringVar(value="No hand loaded")
@@ -674,6 +688,10 @@ class HandHistoryExplorer(tk.Tk):
         # --- New: Hand Actions Button ---
         actions_btn = ttk.Button(parent, text="Show Hand Actions", command=self.show_hand_actions)
         actions_btn.pack(fill=tk.X, padx=5, pady=5)
+        
+        # --- New: Manage Spot Profiles Button ---
+        spot_profiles_btn = ttk.Button(parent, text="Manage Spot Profiles", command=self.open_spot_profile_manager)
+        spot_profiles_btn.pack(fill=tk.X, padx=5, pady=5)
         
         # --- Existing: New PF Action Panel and State Management Panel ---
         new_pf_frame = ttk.LabelFrame(parent, text="New PF Action")
@@ -1963,6 +1981,53 @@ class HandHistoryExplorer(tk.Tk):
             self.player_flop_entry.config(state=tk.NORMAL)
         else:
             self.player_flop_entry.config(state=tk.DISABLED)
+
+    def _on_profile_selected(self, event=None):
+        """Called when a game profile is selected. Updates the other dropdowns."""
+        profile_name = self.game_profile_var.get()
+        profile = self.game_profiles.get(profile_name)
+        if not profile:
+            return
+
+        # Set the values of the underlying format dropdowns
+        self.game_class_var.set(profile['class'])
+        self.game_variant_var.set(profile['variant'])
+        self.table_size_var.set(profile['size'])
+        
+        # Trigger the spot dropdown to update
+        self._update_spot_dropdown()
+
+    def _update_spot_dropdown(self, event=None):
+        """Refreshes the Preflop Spot dropdown with spots filtered by the selected game profile."""
+        # Get the selected game profile
+        profile_name = self.game_profile_var.get()
+        
+        if profile_name:
+            # Filter spots by the selected profile
+            filtered_spots = self.db.get_spots_for_dropdowns(profile_name)
+        else:
+            # Get all spots if no profile is selected
+            filtered_spots = self.db.get_spots_for_dropdowns()
+        
+        self.pf_actions = filtered_spots.get('preflop', {}) # Update the source
+        pf_options = sorted(self.pf_actions.keys(), key=lambda x: int(x) if x.isdigit() else 999)
+        self.pf_seq_combo['values'] = ["Unnamed"] + pf_options
+        self.pf_seq_var.set("Unnamed") # Reset selection
+
+    def open_spot_profile_manager(self):
+        """Open the Spot Profile Manager window."""
+        try:
+            manager = open_spot_profile_manager(self, self.db)
+            # When the manager window is closed, refresh the spot dropdown
+            manager.protocol("WM_DELETE_WINDOW", lambda: self._on_manager_closed(manager))
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open Spot Profile Manager: {e}")
+
+    def _on_manager_closed(self, manager):
+        """Called when the spot profile manager is closed."""
+        manager.destroy()
+        # Refresh the spot dropdown to show any changes
+        self._update_spot_dropdown()
 
 if __name__ == "__main__":
     app = HandHistoryExplorer()

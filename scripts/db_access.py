@@ -657,11 +657,9 @@ class DatabaseAccess:
     def find_spot_for_hand(self, hh_data):
         """
         Finds a defined spot that matches the given hand data.
-        Python-side rule matching: for each spot, all its rules must match the hand.
-        Currently only supports preflop action sequence, but easily extensible.
+        Only spots with a preflop action_sequence rule that matches the hand's preflop sequence are considered a match.
         """
         pf_seq = hh_data.get_simple_action_sequence("preflop")
-        # You can add more hand properties as needed
 
         with self.conn.cursor() as cur:
             # Get all spots and their rules
@@ -673,7 +671,6 @@ class DatabaseAccess:
             """)
             rows = cur.fetchall()
 
-        # Group rules by spot
         from collections import defaultdict
         spot_rules = defaultdict(list)
         spot_info = {}
@@ -681,22 +678,18 @@ class DatabaseAccess:
             spot_rules[spot_id].append((cond_type, cond_params))
             spot_info[spot_id] = {"spot_name": spot_name, "description": description, "id": spot_id}
 
-        # Try to match each spot
+        # Only consider spots that have a preflop rule and it matches
         for spot_id, rules in spot_rules.items():
-            all_match = True
+            preflop_rule = None
             for cond_type, cond_params in rules:
                 if isinstance(cond_params, str):
                     params = json.loads(cond_params)
                 else:
                     params = cond_params
-                if cond_type == 'action_sequence':
-                    # Only preflop for now
-                    if params.get("street") == "preflop":
-                        if params.get("pattern") != pf_seq:
-                            all_match = False
-                            break
-                # Add more condition types as needed
-            if all_match:
+                if cond_type == 'action_sequence' and params.get("street") == "preflop":
+                    preflop_rule = params
+                    break
+            if preflop_rule and preflop_rule.get("pattern") == pf_seq:
                 return spot_info[spot_id]
         return None
 
@@ -743,16 +736,43 @@ class DatabaseAccess:
             print(f"Error creating spot: {e}")
             return None
 
-    def get_spots_for_dropdowns(self):
+    def get_game_profiles(self):
+        """Fetches all defined game profiles from the database."""
+        if not self.conn:
+            print("No database connection.")
+            return {}
+        
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT profile_name, game_class, game_variant, table_size FROM game_profiles ORDER BY profile_name")
+                # Return as a dictionary for easy lookup
+                return {name: {"class": gc, "variant": gv, "size": ts} for name, gc, gv, ts in cur.fetchall()}
+        except Exception as e:
+            print(f"Error fetching game profiles: {e}")
+            return {}
+
+    def get_spots_for_dropdowns(self, profile_name=None):
         """
-        Fetches all spots that are defined by a single action_sequence rule,
-        categorized by street. This is perfect for populating the UI dropdowns.
+        Fetches spots for UI dropdowns, optionally filtered by game profile.
+        If profile_name is None, returns all spots.
         """
         spots_by_street = {"preflop": {}, "postflop": {}}
-        with self.conn.cursor() as cur:
-            # This query finds spots that have exactly ONE rule, and that rule
-            # is of type 'action_sequence'.
-            cur.execute("""
+        
+        if profile_name:
+            # Filter by game profile
+            query = """
+                SELECT DISTINCT s.spot_name, r.condition_params->>'pattern' as sql_pattern, r.condition_params->>'street' as street
+                FROM poker_spots s
+                JOIN spot_rules r ON s.id = r.spot_id
+                JOIN spot_profile_links spl ON s.id = spl.spot_id
+                JOIN game_profiles gp ON spl.profile_id = gp.id
+                WHERE r.condition_type = 'action_sequence' AND gp.profile_name = %s
+                ORDER BY s.spot_name
+            """
+            params = (profile_name,)
+        else:
+            # Get all spots
+            query = """
                 SELECT s.spot_name, r.condition_params->>'pattern' as sql_pattern, r.condition_params->>'street' as street
                 FROM poker_spots s
                 JOIN spot_rules r ON s.id = r.spot_id
@@ -764,7 +784,11 @@ class DatabaseAccess:
                         HAVING COUNT(*) = 1
                     ) as single_rules
                 ) AND r.condition_type = 'action_sequence'
-            """)
+            """
+            params = ()
+
+        with self.conn.cursor() as cur:
+            cur.execute(query, params)
             for spot_name, pattern, street in cur.fetchall():
                 if street in spots_by_street:
                     spots_by_street[street][spot_name] = pattern
@@ -773,3 +797,56 @@ class DatabaseAccess:
                      spots_by_street["postflop"][spot_name] = pattern
 
         return spots_by_street
+
+    def get_all_spots_with_profiles(self):
+        """Get all spots with their associated game profiles."""
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                SELECT s.id, s.spot_name, s.description, 
+                       COALESCE(array_agg(gp.profile_name) FILTER (WHERE gp.profile_name IS NOT NULL), ARRAY[]::text[]) as profile_names
+                FROM poker_spots s
+                LEFT JOIN spot_profile_links spl ON s.id = spl.spot_id
+                LEFT JOIN game_profiles gp ON spl.profile_id = gp.id
+                GROUP BY s.id, s.spot_name, s.description
+                ORDER BY s.spot_name
+            """)
+            return cur.fetchall()
+
+    def get_spot_profiles(self, spot_id):
+        """Get all game profiles associated with a specific spot."""
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                SELECT gp.id, gp.profile_name
+                FROM game_profiles gp
+                JOIN spot_profile_links spl ON gp.id = spl.profile_id
+                WHERE spl.spot_id = %s
+                ORDER BY gp.profile_name
+            """, (spot_id,))
+            return cur.fetchall()
+
+    def update_spot_profiles(self, spot_id, profile_ids):
+        """Update the game profiles associated with a spot."""
+        try:
+            with self.conn.cursor() as cur:
+                # Remove existing associations
+                cur.execute("DELETE FROM spot_profile_links WHERE spot_id = %s", (spot_id,))
+                
+                # Add new associations
+                for profile_id in profile_ids:
+                    cur.execute("""
+                        INSERT INTO spot_profile_links (spot_id, profile_id) 
+                        VALUES (%s, %s)
+                    """, (spot_id, profile_id))
+                
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error updating spot profiles: {e}")
+            self.conn.rollback()
+            return False
+
+    def get_all_game_profiles_with_ids(self):
+        """Get all game profiles with their IDs."""
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT id, profile_name FROM game_profiles ORDER BY profile_name")
+            return cur.fetchall()
