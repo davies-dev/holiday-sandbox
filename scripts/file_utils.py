@@ -1,5 +1,5 @@
 from pathlib import Path
-from config import GTO_BASE_PATH
+from scripts.config import GTO_BASE_PATH
 
 def find_gto_file_in_locations(original_path):
     """

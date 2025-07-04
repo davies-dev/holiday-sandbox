@@ -27,8 +27,8 @@ import webbrowser
 import pathlib
 import urllib.parse
 from datetime import datetime, timedelta
-from config import DB_PARAMS, GTO_BASE_PATH, GTO_EXECUTABLE_PATH
-from file_utils import find_gto_file_in_locations
+from scripts.config import DB_PARAMS, GTO_BASE_PATH, GTO_EXECUTABLE_PATH
+from scripts.file_utils import find_gto_file_in_locations
 import subprocess
 #from betting_op import BettingOppurtunity
 #from betting_op import * 
@@ -68,6 +68,15 @@ class ReviewPanel(ttk.Frame):
 
         self.open_default_btn = ttk.Button(tools_frame, text="Open Default Document", command=self.open_default_document, state=tk.DISABLED)
         self.open_default_btn.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # --- NEW: Move to Processing Button ---
+        self.move_to_processing_btn = ttk.Button(tools_frame, text="Move to Processing", command=self.move_to_processing, state=tk.DISABLED)
+        self.move_to_processing_btn.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # --- NEW: Status Label for Move Operation ---
+        self.move_status_var = tk.StringVar(value="")
+        self.move_status_label = ttk.Label(tools_frame, textvariable=self.move_status_var, font=("Segoe UI", 9), foreground="green")
+        self.move_status_label.pack(side=tk.LEFT, padx=5, pady=5)
         
         self.define_spot_btn = ttk.Button(tools_frame, text="Define New Spot", command=self.define_new_spot, state=tk.DISABLED)
         self.define_spot_btn.pack(side=tk.LEFT, padx=5, pady=5)
@@ -144,6 +153,7 @@ class ReviewPanel(ttk.Frame):
             self.current_spot = matched_spot
             self.spot_name_var.set(f"Spot: {matched_spot['spot_name']}\n{matched_spot['description']}")
             self.open_default_btn.config(state=tk.NORMAL)
+            self.move_to_processing_btn.config(state=tk.NORMAL)
         else:
             pf_seq = hh_data.get_simple_action_sequence('preflop')
             self.spot_name_var.set(f"Unnamed Spot\n(Sequence: {pf_seq})")
@@ -367,6 +377,107 @@ class ReviewPanel(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Error Opening File", f"Could not open the file.\n\nError: {e}")
             print(f"Error opening file '{actual_path}': {e}")
+
+    def move_to_processing(self):
+        """Move the default GTO+ document to the processing directory."""
+        if not self.current_spot:
+            messagebox.showerror("Error", "No spot is selected.")
+            return
+
+        docs = self.db.get_documents_for_spot(self.current_spot['id'])
+        if not docs:
+            messagebox.showinfo("Info", "No documents are linked to this spot.")
+            return
+
+        # Find the default doc, or just take the first one if none is marked default
+        default_doc = next((doc for doc in docs if doc['is_default']), docs[0])
+        file_path_from_db = default_doc['file_path']
+
+        # Use the utility to find the actual file path
+        actual_path = find_gto_file_in_locations(file_path_from_db)
+
+        if not actual_path:
+            messagebox.showerror("Error", f"File not found. Searched multiple locations for:\n{os.path.basename(file_path_from_db)}")
+            return
+
+        # Check if it's a GTO+ file
+        from pathlib import Path
+        file_suffix = Path(actual_path).suffix.lower()
+        if file_suffix not in ['.gto', '.gto+']:
+            messagebox.showerror("Error", "Only GTO+ files can be moved to processing directory.")
+            return
+
+        # Check if GTO+ is running
+        try:
+            import psutil
+            gto_running = False
+            
+            for proc in psutil.process_iter(['name']):
+                try:
+                    if proc.info['name'] and "GTO" in proc.info['name']:
+                        gto_running = True
+                        print(f"GTO+ is running: {proc.info['name']}")
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+            
+            if gto_running:
+                messagebox.showerror("Error", 
+                    "GTO+ is currently running.\n\nPlease close GTO+ before moving files to processing.")
+                return
+            else:
+                print("GTO+ is not running")
+                
+        except ImportError:
+            # psutil not available, skip the check
+            print("psutil not available, skipping GTO+ check")
+            pass
+        except Exception as e:
+            print(f"Warning: Could not check if GTO+ is running: {e}")
+            # Continue with the move operation if we can't check
+
+        # Check if file is already in processing directory
+        processing_dir = Path("C:\\@myfiles\\gtotorunwhenIleave\\")
+        if not processing_dir.exists():
+            try:
+                processing_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not create processing directory:\n{processing_dir}\n\nError: {e}")
+                return
+
+        source_path = Path(actual_path)
+        filename = source_path.name
+        
+        # Check if file already starts with "0 - "
+        if filename.startswith("0 - "):
+            dest_filename = filename
+        else:
+            dest_filename = f"0 - {filename}"
+        
+        dest_path = processing_dir / dest_filename
+
+        # Check if file is already in processing directory
+        if dest_path.exists():
+            self.move_status_var.set("File already in processing directory")
+            return
+
+        # Check if source and destination are the same (file already in processing dir)
+        if source_path.resolve() == dest_path.resolve():
+            self.move_status_var.set("File already in processing directory")
+            return
+
+
+
+        # Move the file
+        try:
+            import shutil
+            shutil.move(str(source_path), str(dest_path))
+            self.move_status_var.set("File moved to processing successfully")
+            print(f"Moved file from {source_path} to {dest_path}")
+        except PermissionError:
+            messagebox.showerror("Error", f"Permission denied moving file.\n\nPlease ensure the file is not open in any application.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to move file to processing directory:\n\nError: {e}")
 
     def define_new_spot(self):
         if not self.current_hh_data:
