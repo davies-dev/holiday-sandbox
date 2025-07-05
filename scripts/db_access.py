@@ -266,6 +266,30 @@ class DatabaseAccess:
                 print(f"Error adding study document: {e}")
                 return False
 
+    def delete_study_document(self, document_id):
+        """Deletes a study document from the library."""
+        if not self.conn:
+            print("No database connection.")
+            return False
+        
+        try:
+            with self.conn.cursor() as cur:
+                # First, get the document details for confirmation
+                cur.execute("SELECT title, file_path FROM study_documents WHERE id = %s", (document_id,))
+                doc_data = cur.fetchone()
+                if not doc_data:
+                    print(f"Document with ID {document_id} not found.")
+                    return False
+                
+                # Delete the document (cascade will handle related records)
+                cur.execute("DELETE FROM study_documents WHERE id = %s", (document_id,))
+                self.conn.commit()
+                return True
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error deleting study document: {e}")
+            return False
+
     # Tag Management Methods
     def create_tag(self, tag_name, description=''):
         """Creates a new tag in the study_tags table."""

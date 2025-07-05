@@ -163,6 +163,7 @@ class LibrarianApp(tk.Tk):
         button_frame = ttk.Frame(docs_frame)
         button_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=5)
         ttk.Button(button_frame, text="Add New Document", command=self.add_new_document).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Remove Document", command=self.remove_document).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Refresh List", command=self.populate_docs_tree).pack(side=tk.LEFT, padx=5)
 
     def build_right_panel(self, parent):
@@ -375,6 +376,37 @@ class LibrarianApp(tk.Tk):
             self.populate_docs_tree()
         else:
             messagebox.showerror("Error", "Failed to add document. Is the file path already in the library?")
+
+    def remove_document(self):
+        """Removes the selected document from the library."""
+        selection = self.docs_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a document to remove.")
+            return
+        
+        doc_item = self.docs_tree.item(selection[0])
+        doc_id = doc_item['values'][0]
+        doc_title = doc_item['values'][1]
+        doc_path = doc_item['values'][2]
+        
+        # Show confirmation dialog with document details
+        confirm_message = f"Are you sure you want to remove this document?\n\nTitle: {doc_title}\nPath: {doc_path}\n\nThis will also remove all tag associations for this document."
+        
+        if messagebox.askyesno("Confirm Document Removal", confirm_message):
+            if self.db.delete_study_document(doc_id):
+                messagebox.showinfo("Success", f"Document '{doc_title}' removed successfully.")
+                # Clear the selected document if it was the one being removed
+                if self.selected_doc_id == doc_id:
+                    self.selected_doc_id = None
+                    # Clear the tags tree
+                    for item in self.tags_tree.get_children():
+                        self.tags_tree.delete(item)
+                    # Clear the rules tree
+                    for item in self.rules_tree.get_children():
+                        self.rules_tree.delete(item)
+                self.populate_docs_tree()
+            else:
+                messagebox.showerror("Error", "Failed to remove document.")
 
     def on_close(self):
         self.db.close()
