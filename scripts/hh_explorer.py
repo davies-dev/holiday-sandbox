@@ -739,6 +739,9 @@ class HandHistoryExplorer(tk.Tk):
         self.main_paned.add(self.right_frame, weight=3)
         
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        # Initialize defaults after UI is built
+        self._initialize_defaults()
     
     def build_left_panel(self, parent):
         # --- Query Settings Panel ---
@@ -747,7 +750,7 @@ class HandHistoryExplorer(tk.Tk):
         
         # --- Game Profile Dropdown ---
         ttk.Label(query_frame, text="Game Profile:").grid(row=0, column=0, sticky=tk.E, padx=5, pady=5)
-        self.game_profile_var = tk.StringVar()
+        self.game_profile_var = tk.StringVar(value="zoom 6-max")
         profile_names = list(self.game_profiles.keys())
         self.game_profile_combo = ttk.Combobox(query_frame, textvariable=self.game_profile_var,
                                                values=profile_names, state="readonly", width=20)
@@ -794,7 +797,7 @@ class HandHistoryExplorer(tk.Tk):
         # Dropdown setup (keep reference for dynamic update)
         self.pf_actions = self.all_spots.get('preflop', {})
         pf_options = sorted(self.pf_actions.keys(), key=lambda x: int(x) if x.isdigit() else 999)
-        self.pf_seq_var = tk.StringVar(value="Unnamed")
+        self.pf_seq_var = tk.StringVar(value="37")
         self.pf_seq_combo = ttk.Combobox(query_frame, textvariable=self.pf_seq_var,
                                          values=["Unnamed"] + pf_options, state="readonly", width=20)
         self.pf_seq_combo.grid(row=5, column=1, sticky=tk.W, padx=5, pady=5)
@@ -878,7 +881,7 @@ class HandHistoryExplorer(tk.Tk):
         self.position_player_entry.grid(row=10, column=3, sticky=tk.W, padx=5, pady=5)
         
         # --- Time Period Checkbox and Entry ---
-        self.time_period_var = tk.BooleanVar(value=True)  # Default to checked
+        self.time_period_var = tk.BooleanVar(value=False)  # Default to unchecked
         self.time_period_checkbox = ttk.Checkbutton(query_frame, text="Time Period (hours):", 
                                                    variable=self.time_period_var,
                                                    command=self.toggle_time_period)
@@ -2264,7 +2267,15 @@ class HandHistoryExplorer(tk.Tk):
         self.pf_actions = filtered_spots.get('preflop', {}) # Update the source
         pf_options = sorted(self.pf_actions.keys(), key=lambda x: int(x) if x.isdigit() else 999)
         self.pf_seq_combo['values'] = ["Unnamed"] + pf_options
-        self.pf_seq_var.set("Unnamed") # Reset selection
+        
+        # Try to maintain the "37" default if it exists in the options, otherwise reset to "Unnamed"
+        current_value = self.pf_seq_var.get()
+        if current_value == "37" and "37" in pf_options:
+            # Keep the "37" selection
+            pass
+        else:
+            # Reset to "Unnamed" if "37" is not available
+            self.pf_seq_var.set("Unnamed")
 
     def open_spot_profile_manager(self):
         """Open the Spot Profile Manager window."""
@@ -2274,6 +2285,19 @@ class HandHistoryExplorer(tk.Tk):
             manager.protocol("WM_DELETE_WINDOW", lambda: self._on_manager_closed(manager))
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open Spot Profile Manager: {e}")
+
+    def _initialize_defaults(self):
+        """Initialize the default values for game profile and preflop spot."""
+        # Set the default game profile and trigger the profile selection
+        if "zoom 6-max" in self.game_profiles:
+            self.game_profile_var.set("zoom 6-max")
+            self._on_profile_selected()
+        
+        # Set the default preflop spot to "37" if it exists
+        if "37" in self.pf_actions:
+            self.pf_seq_var.set("37")
+            # Trigger the preflop selection to load the action string
+            self.on_pf_selection(None)
 
     def _on_manager_closed(self, manager):
         """Called when the spot profile manager is closed."""
