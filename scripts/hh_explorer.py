@@ -653,6 +653,12 @@ class ReviewPanel(ttk.Frame):
             return  # User cancelled
         
         try:
+            # Import the file utility function
+            from scripts.file_utils import get_gto_storage_path
+            
+            # Get the storage path (handles priority prefixes)
+            storage_path = get_gto_storage_path(file_path)
+            
             # Add document to study_documents table and get its ID
             with self.db.conn.cursor() as cur:
                 cur.execute(
@@ -661,7 +667,7 @@ class ReviewPanel(ttk.Frame):
                     VALUES (%s, %s, %s) ON CONFLICT (file_path) DO UPDATE SET title = EXCLUDED.title
                     RETURNING id
                     """,
-                    (title, file_path, source_info)
+                    (title, storage_path, source_info)
                 )
                 doc_id = cur.fetchone()[0]
                 
