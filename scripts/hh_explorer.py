@@ -80,10 +80,17 @@ class ReviewPanel(ttk.Frame):
         
         self.define_spot_btn = ttk.Button(tools_frame, text="Define New Spot", command=self.define_new_spot, state=tk.DISABLED)
         self.define_spot_btn.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # --- NEW: Copy Flop Button ---
+        self.copy_flop_btn = ttk.Button(tools_frame, text="Copy Flop", command=self.copy_flop_to_clipboard, state=tk.DISABLED)
+        self.copy_flop_btn.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # --- NEW: Copy Flop Status Label ---
+        self.copy_flop_status_var = tk.StringVar(value="")
+        self.copy_flop_status_label = ttk.Label(tools_frame, textvariable=self.copy_flop_status_var, font=("Segoe UI", 9), foreground="blue")
+        self.copy_flop_status_label.pack(side=tk.LEFT, padx=5, pady=5)
 
-        # --- NEW: Set Default Document Button ---
-        self.set_default_btn = ttk.Button(tools_frame, text="Set as Default Document", command=self.set_default_document, state=tk.DISABLED)
-        self.set_default_btn.pack(side=tk.LEFT, padx=5, pady=5)
+
 
         # --- Widgets ---
         # --- Relevant Study Notes ---
@@ -135,6 +142,16 @@ class ReviewPanel(ttk.Frame):
         self.doc_list.heading("is_default", text="Default?")
         self.doc_list.pack(fill=tk.X, padx=5, pady=5)
         self.doc_list.bind("<<TreeviewSelect>>", self.on_doc_select)
+        
+        # --- Document Management Buttons ---
+        doc_button_frame = ttk.Frame(doc_frame)
+        doc_button_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.add_document_btn = ttk.Button(doc_button_frame, text="Add Document", command=self.add_document_to_spot, state=tk.DISABLED)
+        self.add_document_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.set_default_btn = ttk.Button(doc_button_frame, text="Set as Default Document", command=self.set_default_document, state=tk.DISABLED)
+        self.set_default_btn.pack(side=tk.LEFT, padx=5)
 
     def load_hand_data(self, hand_id, hh_data):
         self.current_hand_id = hand_id
@@ -143,6 +160,8 @@ class ReviewPanel(ttk.Frame):
         # Reset UI state
         self.open_default_btn.config(state=tk.DISABLED)
         self.define_spot_btn.config(state=tk.DISABLED)
+        self.copy_flop_btn.config(state=tk.DISABLED)
+        self.copy_flop_status_var.set("")
         self.spot_name_var.set("Finding spot...")
         self.current_spot = None # Clear previous spot
 
@@ -154,10 +173,14 @@ class ReviewPanel(ttk.Frame):
             self.spot_name_var.set(f"Spot: {matched_spot['spot_name']}\n{matched_spot['description']}")
             self.open_default_btn.config(state=tk.NORMAL)
             self.move_to_processing_btn.config(state=tk.NORMAL)
+            self.add_document_btn.config(state=tk.NORMAL)
         else:
             pf_seq = hh_data.get_simple_action_sequence('preflop')
             self.spot_name_var.set(f"Unnamed Spot\n(Sequence: {pf_seq})")
             self.define_spot_btn.config(state=tk.NORMAL)
+        
+        # Enable copy flop button for any loaded hand
+        self.copy_flop_btn.config(state=tk.NORMAL)
 
         # Load status and notes as before
         review_data = self.db.get_or_create_review_data(hand_id)
@@ -545,6 +568,124 @@ class ReviewPanel(ttk.Frame):
         messagebox.showinfo("Success", "Default document updated.")
         # Refresh the doc list to show the new default
         self.load_hand_data(self.current_hand_id, self.current_hh_data)
+
+    def add_document_to_spot(self):
+        """Add a new document to the current spot."""
+        if not self.current_spot:
+            messagebox.showerror("Error", "No spot is selected.")
+            return
+
+        # Open file dialog to select a document
+        file_path = filedialog.askopenfilename(
+            title="Select Document",
+            filetypes=[
+                ("GTO+ files", "*.gto;*.gto+"),
+                ("Markdown files", "*.md"),
+                ("Text files", "*.txt"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if not file_path:
+            return  # User cancelled
+        
+        # Get document title from user
+        default_title = os.path.splitext(os.path.basename(file_path))[0]
+        title = simpledialog.askstring("Document Title", 
+                                     "Enter a title for this document:", 
+                                     initialvalue=default_title)
+        
+        if not title:
+            return  # User cancelled
+        
+        # Get source info from user
+        source_info = simpledialog.askstring("Source Information", 
+                                           "Enter source information (e.g., 'GTO+', 'Modern Poker Theory'):")
+        
+        if source_info is None:
+            return  # User cancelled
+        
+        try:
+            # Add document to study_documents table and get its ID
+            with self.db.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO study_documents (title, file_path, source_info)
+                    VALUES (%s, %s, %s) ON CONFLICT (file_path) DO UPDATE SET title = EXCLUDED.title
+                    RETURNING id
+                    """,
+                    (title, file_path, source_info)
+                )
+                doc_id = cur.fetchone()[0]
+                
+                # Link document to current spot
+                cur.execute(
+                    """
+                    INSERT INTO spot_document_links (spot_id, document_id, is_default)
+                    VALUES (%s, %s, %s) ON CONFLICT DO NOTHING
+                    """,
+                    (self.current_spot['id'], doc_id, False)
+                )
+                
+                self.db.conn.commit()
+                messagebox.showinfo("Success", f"Document '{title}' added to spot '{self.current_spot['spot_name']}' successfully!")
+                # Refresh the document list
+                self.load_hand_data(self.current_hand_id, self.current_hh_data)
+                
+        except Exception as e:
+            self.db.conn.rollback()
+            messagebox.showerror("Error", f"Failed to add document: {str(e)}")
+
+    def copy_flop_to_clipboard(self):
+        """Copy the current hand's flop cards to the clipboard."""
+        if not self.current_hh_data:
+            self.copy_flop_status_var.set("No hand loaded")
+            return
+        
+        try:
+            # Try to get flop cards from the hand history data
+            flop_cards = []
+            
+            # Method 1: Check if flop_cards attribute exists
+            if hasattr(self.current_hh_data, 'flop_cards') and self.current_hh_data.flop_cards:
+                flop_cards = self.current_hh_data.flop_cards
+            
+            # Method 2: Extract from raw text using regex
+            elif hasattr(self.current_hh_data, 'raw_text') and self.current_hh_data.raw_text:
+                import re
+                flop_match = re.search(r'\*\*\* FLOP \*\*\* \[([^\]]+)\]', self.current_hh_data.raw_text)
+                if flop_match:
+                    flop_text = flop_match.group(1)
+                    flop_cards = [card.strip() for card in flop_text.split()]
+            
+            # Method 3: Check if there's a hand_history_tree with flop information
+            elif hasattr(self.current_hh_data, 'hand_history_tree'):
+                for node in self.current_hh_data.hand_history_tree.get_all_nodes():
+                    if hasattr(node, 'street') and node.street == 'flop':
+                        if hasattr(node, 'board_cards') and node.board_cards:
+                            flop_cards = node.board_cards[:3]  # Take first 3 cards for flop
+                            break
+            
+            if not flop_cards:
+                self.copy_flop_status_var.set("No flop to copy")
+                return
+            
+            # Format the flop cards as requested: "4d 8s 4c"
+            formatted_flop = " ".join(flop_cards[:3])  # Ensure we only take 3 cards
+            
+            # Copy to clipboard
+            self.clipboard_clear()
+            self.clipboard_append(formatted_flop)
+            
+            # Update status
+            self.copy_flop_status_var.set(f"Copied: {formatted_flop}")
+            
+            # Clear status after 3 seconds
+            self.after(3000, lambda: self.copy_flop_status_var.set(""))
+            
+        except Exception as e:
+            self.copy_flop_status_var.set(f"Error: {str(e)}")
+            print(f"Error copying flop to clipboard: {e}")
 
 # ------------------------------
 # Main Application: QueryStateBrowser
