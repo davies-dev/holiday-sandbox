@@ -142,6 +142,7 @@ class ReviewPanel(ttk.Frame):
         self.doc_list.heading("is_default", text="Default?")
         self.doc_list.pack(fill=tk.X, padx=5, pady=5)
         self.doc_list.bind("<<TreeviewSelect>>", self.on_doc_select)
+        self.doc_list.bind("<Double-1>", self._open_linked_document)
         
         # --- Document Management Buttons ---
         doc_button_frame = ttk.Frame(doc_frame)
@@ -545,6 +546,52 @@ class ReviewPanel(ttk.Frame):
         except Exception as e:
             print(f"Error opening study note in Obsidian: {e}")
             messagebox.showerror("Error", f"Could not open study note in Obsidian.\nError: {str(e)}")
+
+    def _open_linked_document(self, event):
+        """Opens the selected linked document when double-clicked."""
+        selection = self.doc_list.selection()
+        if not selection: 
+            return
+        
+        item = self.doc_list.item(selection[0])
+        file_path_from_db = item['values'][1]  # title, file_path, is_default -> file_path is the 2nd value
+
+        # Use the utility to find the actual file path (searches multiple locations for GTO files)
+        actual_path = find_gto_file_in_locations(file_path_from_db)
+
+        if not actual_path:
+            messagebox.showerror("Error", f"File not found. Searched multiple locations for:\n{os.path.basename(file_path_from_db)}")
+            return
+
+        try:
+            # Check file type before opening
+            from pathlib import Path
+            file_suffix = Path(actual_path).suffix.lower()
+
+            if file_suffix in ['.gto', '.gto+']:
+                # Open GTO+ files with system default application
+                print(f"Opening GTO+ file: {actual_path}")
+                os.startfile(actual_path) if os.name == 'nt' else subprocess.run(['xdg-open', actual_path])
+            elif file_suffix == '.md':
+                # Try to open markdown files in Obsidian if they're in the vault
+                if hasattr(self, 'OBSIDIAN_VAULT_PATH') and actual_path.startswith(self.OBSIDIAN_VAULT_PATH):
+                    relative_path = os.path.relpath(actual_path, self.OBSIDIAN_VAULT_PATH)
+                    encoded_path = urllib.parse.quote(relative_path.replace(os.sep, '/'))
+                    obsidian_uri = f"obsidian://open?vault={self.OBSIDIAN_VAULT_NAME}&file={encoded_path}"
+                    webbrowser.open(obsidian_uri)
+                    print(f"Opened linked document in Obsidian: {actual_path}")
+                else:
+                    # Open with default system application
+                    os.startfile(actual_path) if os.name == 'nt' else subprocess.run(['xdg-open', actual_path])
+                    print(f"Opened linked document with system default: {actual_path}")
+            else:
+                # For other file types, open with system default
+                os.startfile(actual_path) if os.name == 'nt' else subprocess.run(['xdg-open', actual_path])
+                print(f"Opened linked document with system default: {actual_path}")
+                
+        except Exception as e:
+            print(f"Error opening linked document: {e}")
+            messagebox.showerror("Error", f"Could not open document.\nError: {str(e)}")
 
     def on_doc_select(self, event):
         selected = self.doc_list.selection()
